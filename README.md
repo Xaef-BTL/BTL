@@ -17,8 +17,8 @@ Customizable GUI and icons
 Simple yet fun, open for community contributions
 
 Installation
-git clone https://github.com/Xaef-BTL/BTLv4.3.git
-cd BTLv4.3
+git clone https://github.com/Xaef-BTL/BTL
+cd BTL
 python BTLv.4.3Professional.py
 
 Contributing
