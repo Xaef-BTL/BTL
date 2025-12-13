@@ -1,0 +1,18 @@
+What's new in BTL 4.4?
+/* Copyright Xaef-BTL 2025. All rights reserved */
+We removed the boring, space-taking bottom bar in Lightning Browser to provide a clean and wide view, added tab management, devtools, and a search bar. Performance also increased by 20%.
+We touched up the Snake Game to give it a bit of a retro feel.
+**So what’s coming very soon?**
+
+
+BTL antivirus (BTLguard) will be added,
+
+
+Code editor will be added,
+
+
+The Start menu will become more advanced and modern,
+
+
+And User management + Login screen will be added.
+
