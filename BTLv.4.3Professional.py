@@ -27,6 +27,10 @@ import copy
 from pathlib import Path
 import tkinter as tk
 from tkinter import Toplevel, Label, Text, END, Button, Entry, Menu, filedialog, ttk, Canvas, messagebox, simpledialog
+import glob
+from plyer import notification
+from tkinter import font
+
 
 # Optional libs
 try:
@@ -507,12 +511,11 @@ def do_finish(window):
 
 # ---------- Globaller ----------
 root = tk.Tk()
-root.title("BTL 4.3 Professional")
+root.title("BTL 4.4 Ultra")
 root.geometry("900x600")
 root.config(bg="white")
 setup_screen()
 root.iconbitmap(BASE_DIR, "BTL.ico")
-
 
 _image_refs = []         # PhotoImage referanslarını sakla (Tkinter GC için)
 # {label_text: {"frame":frame, "icon_label":..., "text_label":...}}
@@ -1963,6 +1966,495 @@ def open_file_manager():
     status.config(
         text="Kısayollar: Delete=Sil, F2=Yeniden adlandır, Ctrl+C/Ctrl+V=Kopyala/Yapıştır")
 
+    # advanced_code_editor.py
+# Python 3, Tkinter tabanlı gelişmiş kod editörü (parametresiz open_code_editor()).
+# Tek dosyaya yapıştırıp çalıştırabilirsiniz.
+
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, simpledialog
+import os, sys, tempfile, threading, subprocess, re, keyword, time
+
+PY_KEYWORDS = set(keyword.kwlist)
+
+class CodeTab:
+    def __init__(self, parent_notebook, title="Untitled", content="", filepath=None):
+        self.notebook = parent_notebook
+        self.frame = ttk.Frame(parent_notebook)
+        self.filepath = filepath
+        self._saved = True if filepath else False
+        # Panes: editor (with line numbers) and output console below
+        self.pw = ttk.PanedWindow(self.frame, orient=tk.VERTICAL)
+        self.pw.pack(fill=tk.BOTH, expand=True)
+
+        top_frame = ttk.Frame(self.pw)
+        bottom_frame = ttk.Frame(self.pw, height=120)
+
+        # Line numbers canvas
+        ln_frame = ttk.Frame(top_frame)
+        ln_frame.pack(side=tk.LEFT, fill=tk.Y)
+        self.ln_canvas = tk.Text(ln_frame, width=4, padx=4, takefocus=0, borderwidth=0, state="disabled")
+        self.ln_canvas.pack(fill=tk.Y, expand=False)
+
+        # Main text widget
+        text_frame = ttk.Frame(top_frame)
+        text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.text = tk.Text(text_frame, wrap="none", undo=True)
+        self.text.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+
+        # Scrollbars
+        vsb = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self._on_vscroll)
+        hsb = ttk.Scrollbar(self.frame, orient=tk.HORIZONTAL, command=self.text.xview)
+        self.text.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(fill=tk.X)
+
+        # Output console
+        self.output = tk.Text(bottom_frame, height=8, state="disabled", wrap="word")
+        self.output.pack(fill=tk.BOTH, expand=True)
+
+        self.pw.add(top_frame, weight=3)
+        self.pw.add(bottom_frame, weight=1)
+
+        # insert initial content
+        self.text.insert("1.0", content)
+        self._init_tags()
+        self._bind_events()
+        self.update_line_numbers()
+        self._schedule_highlight()
+
+        parent_notebook.add(self.frame, text=title)
+        self._update_tab_title()
+
+    def _on_vscroll(self, *args):
+        self.text.yview(*args)
+        self.ln_canvas.yview(*args)
+
+
+def _init_tags(self):
+    default_font = tkfont.Font(family="Courier", size=10)
+    alic_font = tkfont.Font(family="Courier", size=10, slant="italic")
+
+    self.text.tag_configure("keyword", foreground="#0077aa", font=default_font)
+    self.text.tag_configure("string", foreground="#a02020", font=default_font)
+    self.text.tag_configure("comment", foreground="#008000", font=italic_font)
+    self.text.tag_configure("number", foreground="#aa00aa", font=default_font)
+    self.text.tag_configure("defclass", foreground="#0033aa", underline=True, font=default_font)
+    self.text.tag_configure("matching", background="#ffff80")
+
+    self.output.tag_configure("stderr", foreground="#a00000")
+    self.output.tag_configure("stdout", foreground="#000000")
+
+
+    def _bind_events(self):
+        self.text.bind("<<Modified>>", self._on_modified)
+        self.text.bind("<KeyRelease>", self._on_key_release)
+        self.text.bind("<Return>", self._on_return, add=True)
+        self.text.bind("<Tab>", self._on_tab, add=True)
+        self.text.bind("<Control-space>", self._autocomplete)
+        self.text.bind("<Button-1>", lambda e: self._clear_bracket_highlight())
+        self.text.bind("<KeyRelease-bracket>", lambda e: None)  # placeholder
+
+    def _on_modified(self, event=None):
+        self.text.edit_modified(False)
+        self._saved = False
+        self._update_tab_title()
+        self.update_line_numbers()
+
+    def _update_tab_title(self):
+        idx = self.notebook.index(self.frame)
+        title = os.path.basename(self.filepath) if self.filepath else "Untitled"
+        if not self._saved:
+            title = "*" + title
+        self.notebook.tab(self.frame, text=title)
+
+    def update_line_numbers(self):
+        lines = int(self.text.index("end-1c").split(".")[0])
+        ln_text = "\n".join(str(i) for i in range(1, lines+1))
+        self.ln_canvas.config(state="normal")
+        self.ln_canvas.delete("1.0", "end")
+        self.ln_canvas.insert("1.0", ln_text)
+        self.ln_canvas.config(state="disabled")
+
+    # Simple syntax highlight for Python
+    HIGHLIGHT_RE = [
+        ("comment", re.compile(r"#.*")),
+        ("string", re.compile(r'(\'\'\'[\s\S]*?\'\'\'|"""[\s\S]*?"""|\'[^\']*\'|"[^"]*")')),
+        ("number", re.compile(r"\b\d+(\.\d+)?\b")),
+        ("defclass", re.compile(r"\b(class|def)\s+([A-Za-z_][A-Za-z0-9_]*)")),
+    ]
+
+    def _schedule_highlight(self, delay=250):
+        if hasattr(self, "_hl_job"):
+            try:
+                self.text.after_cancel(self._hl_job)
+            except:
+                pass
+        self._hl_job = self.text.after(delay, self._highlight)
+
+    def _on_key_release(self, event=None):
+        self.update_line_numbers()
+        # only schedule heavy highlight occasionally
+        self._schedule_highlight()
+        self._update_status()
+
+    def _highlight(self):
+        # Clear tags
+        start = "1.0"
+        end = "end-1c"
+        for tag in ["keyword", "string", "comment", "number", "defclass"]:
+            self.text.tag_remove(tag, start, end)
+
+        txt = self.text.get(start, end)
+        # keywords
+        for m in re.finditer(r"\b[A-Za-z_][A-Za-z0-9_]*\b", txt):
+            word = m.group(0)
+            if word in PY_KEYWORDS:
+                s = "1.0 + %d chars" % m.start()
+                e = "1.0 + %d chars" % m.end()
+                self.text.tag_add("keyword", s, e)
+
+        # other patterns
+        for tkname, cre in self.HIGHLIGHT_RE:
+            for m in cre.finditer(txt):
+                s = "1.0 + %d chars" % m.start()
+                e = "1.0 + %d chars" % m.end()
+                self.text.tag_add(tkname, s, e)
+
+        # def/class names
+        for m in re.finditer(r"\b(class|def)\s+([A-Za-z_][A-Za-z0-9_]*)", txt):
+            name = m.group(2)
+            s = "1.0 + %d chars" % m.start(2)
+            e = "1.0 + %d chars" % m.end(2)
+            self.text.tag_add("defclass", s, e)
+
+    def _on_return(self, event=None):
+        # auto-indent
+        idx = self.text.index("insert")
+        line = self.text.get(idx + " linestart", idx + " lineend")
+        indent = re.match(r"\s*", line).group(0)
+        # if previous char is ":" add extra indent
+        prev_line = self.text.get(idx + " -1line linestart", idx + " -1line lineend")
+        if prev_line.strip().endswith(":"):
+            indent += "    "
+        self.text.insert("insert", "\n" + indent)
+        return "break"
+
+    def _on_tab(self, event=None):
+        self.text.insert("insert", "    ")
+        return "break"
+
+    def _autocomplete(self, event=None):
+        # very small autocomplete: show keywords starting with current token
+        idx = self.text.index("insert")
+        token = re.findall(r"[A-Za-z_][A-Za-z0-9_]*$", self.text.get("1.0", idx))
+        token = token[0] if token else ""
+        if not token:
+            return
+        matches = [k for k in sorted(PY_KEYWORDS) if k.startswith(token)]
+        if not matches:
+            return
+        x, y, _, _ = self.text.bbox("insert")
+        # basic popup menu
+        menu = tk.Menu(self.text, tearoff=0)
+        for m in matches[:20]:
+            menu.add_command(label=m, command=lambda mm=m: self._insert_completion(token, mm))
+        try:
+            menu.tk_popup(self.text.winfo_rootx()+x, self.text.winfo_rooty()+y+20)
+        finally:
+            menu.grab_release()
+
+    def _insert_completion(self, token, completion):
+        # replace token before cursor
+        idx = self.text.index("insert")
+        start = "%s - %dc" % (idx, len(token))
+        self.text.delete(start, idx)
+        self.text.insert(start, completion)
+
+    def _clear_bracket_highlight(self):
+        self.text.tag_remove("matching", "1.0", "end")
+
+    def highlight_matching_bracket(self):
+        # simple matching for (), [], {}
+        pos = self.text.index("insert")
+        char = self.text.get(pos + " -1c")
+        pairs = {"(":")", "[":"]", "{":"}", ")":"(", "]":"[", "}":"{"}
+        if char in pairs:
+            match = pairs[char]
+            # forward or backward search
+            direction = "forward" if char in "([{" else "backward"
+            count = 0
+            i = self.text.index("insert")
+            text = self.text.get("1.0", "end-1c")
+            abs_index = self._index_to_abs(i)
+            step = 1 if direction=="forward" else -1
+            for j in range(abs_index, len(text) if step==1 else -1, step):
+                c = text[j]
+                if c == char:
+                    count += 1
+                elif c == match:
+                    count -= 1
+                    if count == 0:
+                        # highlight both
+                        a = "1.0 + %d chars" % (j if step==1 else abs_index-1)
+                        b = "1.0 + %d chars" % (j+1 if step==1 else abs_index)
+                        self.text.tag_add("matching", "insert -1c", "insert")
+                        self.text.tag_add("matching", a, b)
+                        break
+
+    def _index_to_abs(self, index):
+        # convert "line.col" to absolute char index
+        l, c = map(int, str(index).split("."))
+        lines = self.text.get("1.0", "%d.0" % (l-1))
+        return len(lines) + c
+
+    def get_content(self):
+        return self.text.get("1.0", "end-1c")
+
+    def save(self, path=None):
+        if path is None and self.filepath is None:
+            return self.save_as()
+        target = path or self.filepath
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(self.get_content())
+            self.filepath = target
+            self._saved = True
+            self._update_tab_title()
+            return True
+        except Exception as e:
+            messagebox.showerror("Kaydetme hatası", str(e))
+            return False
+
+    def save_as(self):
+        path = filedialog.asksaveasfilename(defaultextension=".py",
+                                            filetypes=[("Python","*.py"),("All","*.*")])
+        if path:
+            return self.save(path)
+        return False
+
+    def open_file(self, path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                txt = f.read()
+            self.text.delete("1.0", "end")
+            self.text.insert("1.0", txt)
+            self.filepath = path
+            self._saved = True
+            self._update_tab_title()
+            self._schedule_highlight(1)
+            return True
+        except Exception as e:
+            messagebox.showerror("Açma hatası", str(e))
+            return False
+
+    def run(self, show_output_callback=None):
+        # save temp file if unsaved
+        if self.filepath:
+            run_path = self.filepath
+        else:
+            fd, fp = tempfile.mkstemp(suffix=".py", text=True)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(self.get_content())
+            run_path = fp
+
+        def target():
+            cmd = [sys.executable, run_path]
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            out, err = proc.communicate()
+            if show_output_callback:
+                show_output_callback(out, err)
+            # if temp file created, remove it
+            if not self.filepath:
+                try:
+                    os.remove(run_path)
+                except:
+                    pass
+        t = threading.Thread(target=target, daemon=True)
+        t.start()
+
+class CodeEditor:
+    def __init__(self, root):
+        self.root = root
+        self.top = tk.Toplevel(root)
+        self.top.title("Gelişmiş Kod Editörü")
+        self.top.geometry("1000x700")
+        self.notebook = ttk.Notebook(self.top)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        self._tabs = []
+
+        # menu and toolbar
+        self._create_menu()
+        self._create_toolbar()
+        self._create_statusbar()
+
+        # start with one tab
+        self.new_tab()
+
+        # bind shortcuts on Toplevel
+        self.top.bind_all("<Control-n>", lambda e: self.new_tab())
+        self.top.bind_all("<Control-o>", lambda e: self.open_file())
+        self.top.bind_all("<Control-s>", lambda e: self.save_current())
+        self.top.bind_all("<Control-S>", lambda e: self.save_current_as())
+        self.top.bind_all("<Control-f>", lambda e: self.find_text())
+        self.top.bind_all("<F5>", lambda e: self.run_current())
+
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+        self._update_title()
+
+    def _create_menu(self):
+        menubar = tk.Menu(self.top)
+        filem = tk.Menu(menubar, tearoff=0)
+        filem.add_command(label="Yeni (Ctrl+N)", command=self.new_tab)
+        filem.add_command(label="Aç (Ctrl+O)", command=self.open_file)
+        filem.add_separator()
+        filem.add_command(label="Kaydet (Ctrl+S)", command=self.save_current)
+        filem.add_command(label="Farklı Kaydet (Ctrl+Shift+S)", command=self.save_current_as)
+        filem.add_separator()
+        filem.add_command(label="Kapat", command=self.top.destroy)
+        menubar.add_cascade(label="Dosya", menu=filem)
+
+        runm = tk.Menu(menubar, tearoff=0)
+        runm.add_command(label="Çalıştır (F5)", command=self.run_current)
+        menubar.add_cascade(label="Çalıştır", menu=runm)
+
+        editm = tk.Menu(menubar, tearoff=0)
+        editm.add_command(label="Geri Al", command=self._do_undo)
+        editm.add_command(label="İleri Al", command=self._do_redo)
+        editm.add_command(label="Bul (Ctrl+F)", command=self.find_text)
+        menubar.add_cascade(label="Düzen", menu=editm)
+
+        self.top.config(menu=menubar)
+
+    def _create_toolbar(self):
+        toolbar = ttk.Frame(self.top)
+        toolbar.pack(fill=tk.X)
+        ttk.Button(toolbar, text="Yeni", command=self.new_tab).pack(side=tk.LEFT, padx=2, pady=2)
+        ttk.Button(toolbar, text="Aç", command=self.open_file).pack(side=tk.LEFT, padx=2, pady=2)
+        ttk.Button(toolbar, text="Kaydet", command=self.save_current).pack(side=tk.LEFT, padx=2, pady=2)
+        ttk.Button(toolbar, text="Çalıştır", command=self.run_current).pack(side=tk.LEFT, padx=2, pady=2)
+
+    def _create_statusbar(self):
+        self.status = ttk.Label(self.top, text="Line 1, Col 0")
+        self.status.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def _update_status(self, msg=None):
+        tab = self.current_tab()
+        if not tab:
+            return
+        idx = tab.text.index("insert").split(".")
+        ln, col = idx[0], idx[1]
+        fname = os.path.basename(tab.filepath) if tab.filepath else "Untitled"
+        self.status.config(text=f"{fname} — Satır {ln}, Kolon {col}" if not msg else msg)
+
+    def _update_title(self):
+        self.top.title("Gelişmiş Kod Editörü")
+
+    def _on_tab_changed(self, event=None):
+        self._update_status()
+
+    def current_tab(self):
+        if not self.notebook.tabs():
+            return None
+        frame = self.notebook.nametowidget(self.notebook.select())
+        for t in self._tabs:
+            if t.frame == frame:
+                return t
+        return None
+
+    def new_tab(self, content="", filepath=None):
+        title = os.path.basename(filepath) if filepath else "Untitled"
+        tab = CodeTab(self.notebook, title=title, content=content, filepath=filepath)
+        self._tabs.append(tab)
+        self.notebook.select(tab.frame)
+        tab.text.focus_set()
+        tab.text.bind("<KeyRelease>", lambda e: self._update_status())
+        return tab
+
+    def open_file(self):
+        path = filedialog.askopenfilename(filetypes=[("Python", "*.py"), ("All", "*.*")])
+        if not path:
+            return
+        # open in new tab
+        t = self.new_tab()
+        t.open_file(path)
+
+    def save_current(self):
+        tab = self.current_tab()
+        if not tab:
+            return
+        if not tab.filepath:
+            return tab.save_as()
+        return tab.save()
+
+    def save_current_as(self):
+        tab = self.current_tab()
+        if not tab:
+            return
+        return tab.save_as()
+
+    def _do_undo(self):
+        tab = self.current_tab()
+        try:
+            tab.text.edit_undo()
+        except:
+            pass
+
+    def _do_redo(self):
+        tab = self.current_tab()
+        try:
+            tab.text.edit_redo()
+        except:
+            pass
+
+    def find_text(self):
+        tab = self.current_tab()
+        if not tab:
+            return
+        pattern = simpledialog.askstring("Bul", "Aranacak metin:")
+        if not pattern:
+            return
+        tab.text.tag_remove("search", "1.0", "end")
+        idx = "1.0"
+        found = False
+        while True:
+            idx = tab.text.search(pattern, idx, nocase=True, stopindex="end")
+            if not idx:
+                break
+            end = f"{idx}+{len(pattern)}c"
+            tab.text.tag_add("search", idx, end)
+            idx = end
+            found = True
+        tab.text.tag_config("search", background="#ffff00")
+        if not found:
+            messagebox.showinfo("Bulunamadı", f"'{pattern}' bulunamadı.")
+
+    def run_current(self):
+        tab = self.current_tab()
+        if not tab:
+            return
+        # clear output
+        tab.output.config(state="normal")
+        tab.output.delete("1.0", "end")
+        tab.output.config(state="disabled")
+
+        def show_output(out, err):
+            tab.output.config(state="normal")
+            if out:
+                tab.output.insert("end", out, "stdout")
+            if err:
+                tab.output.insert("end", err, "stderr")
+            tab.output.config(state="disabled")
+
+        tab.run(show_output_callback=show_output)
+
+def open_code_editor():
+    """Parametresiz fonksiyon: yeni Toplevel'de gelişmiş kod editörü açar."""
+    root = tk._default_root
+    if root is None:
+        root = tk.Tk()
+        root.withdraw()
+    CodeEditor(root)
+
     # ----------------- GELİŞTİRMELER (AŞAĞIYA EKLENDİ) -----------------
     # Not: Orijinal fonksiyondaki satırlar hiç çıkarılmadı, sadece sonuna
     # gelişmiş özellikler eklendi. Hadi bakalım, mucize bekleme ama iş görüyor.
@@ -2569,6 +3061,561 @@ def open_notepad(root=None):
             (lambda: None))())
     notepad_btn.place(relx=0.5, rely=0.5, anchor="center")
 
+"""
+Robot Satranç - Taş Hareket Animasyonu Eklendi
+Parametresiz çağrılacak fonksiyon: open_chess_game()
+
+Yapılan değişiklikler:
+- Taş hareketleri için akıcı bir animasyon eklendi (hem kullanıcı hamleleri hem de robot hamleleri için).
+- animate_and_push(frm,to, callback=None) fonksiyonu eklendi: önce görsel animasyon oynatır, sonra hamleyi tahtaya uygular.
+- Animasyon süresi ayarlanabilir: ChessGame(..., anim_duration=180) şeklinde milisaniye cinsinden verilebilir.
+- Animasyon sırasında kullanıcı girişleri engellenir.
+
+Not: Kod hala hafif bir motor içerir; animasyon UI tarafında görsel kaliteyi arttırır. Daha farklı easing veya sürükle-bırak için eklemeler yapılabilir.
+"""
+
+import tkinter as tk
+from tkinter import messagebox
+import time
+import random
+
+# Satranç sembolleri
+UNICODE = {
+    'P': '\u2659', 'N': '\u2658', 'B': '\u2657', 'R': '\u2656', 'Q': '\u2655', 'K': '\u2654',
+    'p': '\u265F', 'n': '\u265E', 'b': '\u265D', 'r': '\u265C', 'q': '\u265B', 'k': '\u265A',
+}
+
+PIECE_VALUES = {
+    'q': 900, 'r': 500, 'b': 330, 'n': 320, 'p': 100,
+    'Q': 900, 'R': 500, 'B': 330, 'N': 320, 'P': 100,
+    'k': 20000, 'K': 20000
+}
+
+def board_to_key(board):
+    return ''.join(''.join(row) for row in board)
+
+class ChessGame:
+    def __init__(self, master=None, ai_depth=5, time_limit=8.0, anim_duration=180):
+        # Toplevel oluşturma
+        if master is None:
+            if not tk._default_root:
+                self.root = tk.Tk()
+                self.root.withdraw()
+            else:
+                self.root = tk._default_root
+            self.top = tk.Toplevel(self.root)
+        else:
+            self.top = tk.Toplevel(master)
+        self.top.title('Satranç (Animasyonlu) - open_chess_game()')
+        self.top.protocol('WM_DELETE_WINDOW', self.on_close)
+
+        self.ai_depth = ai_depth
+        self.time_limit = time_limit
+        self.anim_duration = anim_duration  # milisaniye
+
+        self.board = [['.' for _ in range(8)] for __ in range(8)]
+        self.init_board()
+        self.history = []
+        self.turn = 'w'  # 'w', 'b' veya 'busy' (animasyon sırasında)
+
+        self.square_size = 64
+        self.canvas = tk.Canvas(self.top, width=8*self.square_size, height=8*self.square_size)
+        self.canvas.pack()
+        self.canvas.bind('<Button-1>', self.on_click)
+
+        self.selected = None
+        self.legal_moves_cache = []
+
+        self.info_label = tk.Label(self.top, text='Siz beyazsınız. Taşı tıklayın.', anchor='w')
+        self.info_label.pack(fill='x')
+
+        # Transpo table ve history heuristic
+        self.ttable = {}
+        self.hist_heur = {}
+
+        self.draw_board()
+
+    def on_close(self):
+        try:
+            if hasattr(self, 'root') and self.root is not None:
+                if self.root is not tk._default_root:
+                    self.root.destroy()
+        except Exception:
+            pass
+        self.top.destroy()
+
+    def init_board(self):
+        back = ['r','n','b','q','k','b','n','r']
+        for i in range(8):
+            self.board[0][i] = back[i]
+            self.board[1][i] = 'p'
+            self.board[6][i] = 'P'
+            self.board[7][i] = back[i].upper()
+        for r in range(2,6):
+            for c in range(8):
+                self.board[r][c] = '.'
+
+    def draw_board(self):
+        self.canvas.delete('all')
+        for r in range(8):
+            for c in range(8):
+                x1 = c*self.square_size
+                y1 = r*self.square_size
+                x2 = x1 + self.square_size
+                y2 = y1 + self.square_size
+                fill = '#EEEED2' if (r+c)%2==0 else '#769656'
+                self.canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline='')
+                piece = self.board[r][c]
+                if piece != '.':
+                    symbol = UNICODE.get(piece, '?')
+                    self.canvas.create_text(x1+self.square_size/2, y1+self.square_size/2, text=symbol, font=('Arial', 32), tags=f'piece_{r}_{c}')
+        if self.selected:
+            r,c = self.selected
+            self.highlight_square(r,c,'#F6F669')
+            for (tr,tc) in self.legal_moves_cache:
+                self.highlight_square(tr,tc,'#BACAFF')
+
+    def highlight_square(self,r,c,color):
+        x1 = c*self.square_size
+        y1 = r*self.square_size
+        x2 = x1 + self.square_size
+        y2 = y1 + self.square_size
+        self.canvas.create_rectangle(x1+2, y1+2, x2-2, y2-2, outline=color, width=3)
+
+    def on_click(self, event):
+        # bloklama: animasyon veya AI sırasında tıklamayı yoksay
+        if self.turn == 'busy' or self.turn == 'b':
+            return
+
+        c = event.x // self.square_size
+        r = event.y // self.square_size
+        if not (0 <= r < 8 and 0 <= c < 8):
+            return
+        piece = self.board[r][c]
+        side = 'w' if piece.isupper() else 'b' if piece.isalpha() else None
+
+        if self.selected:
+            if (r,c) in self.legal_moves_cache:
+                # animasyonlu hamle: önce görsel, sonra tahtaya uygula
+                self.turn = 'busy'
+                self.info_label.config(text='Taş hareket ediyor...')
+                self.animate_and_push(self.selected, (r,c), after_cb=self.after_player_move)
+                return
+            else:
+                if side == 'w':
+                    self.selected = (r,c)
+                    self.legal_moves_cache = self.get_legal_moves_for_square(r,c)
+                    self.draw_board()
+                    return
+                else:
+                    self.selected = None
+                    self.legal_moves_cache = []
+                    self.draw_board()
+                    return
+
+        if side == 'w':
+            self.selected = (r,c)
+            self.legal_moves_cache = self.get_legal_moves_for_square(r,c)
+            self.draw_board()
+
+    def after_player_move(self):
+        # oyuncunun animasyonu tamamlandıktan sonra
+        self.turn = 'b'
+        self.info_label.config(text='Rakip (robot) hamle yapıyor...')
+        self.top.update()
+        self.top.after(80, self.ai_move)
+
+    def animate_and_push(self, frm, to, after_cb=None):
+        """Grafiksel animasyon: taşın görselini hareket ettirir, ardından hamleyi uygular.
+        after_cb: animasyon bittikten sonra çağrılacak fonksiyon.
+        """
+        fr,fc = frm
+        tr,tc = to
+        piece = self.board[fr][fc]
+        if piece == '.':
+            # tuhaf ama güvenlik
+            self.push_move(frm,to)
+            if after_cb:
+                after_cb()
+            return
+
+        # başlangıç koordinatları
+        start_x = fc*self.square_size + self.square_size/2
+        start_y = fr*self.square_size + self.square_size/2
+        end_x = tc*self.square_size + self.square_size/2
+        end_y = tr*self.square_size + self.square_size/2
+
+        symbol = UNICODE.get(piece, '?')
+        temp = self.canvas.create_text(start_x, start_y, text=symbol, font=('Arial', 32), tags='anim_piece')
+
+        # hedef karedeki taşı hafifçe vurgula (capture için)
+        captured = self.board[tr][tc]
+        if captured != '.':
+            # kırmızı kenarlıkla uyar
+            self.highlight_square(tr,tc,'#FF5555')
+
+        frames = max(4, int(self.anim_duration / 30))
+        dx = (end_x - start_x) / frames
+        dy = (end_y - start_y) / frames
+        delay = int(self.anim_duration / frames)
+
+        def step(i=0):
+            if i < frames:
+                self.canvas.move(temp, dx, dy)
+                self.top.update()
+                self.top.after(delay, lambda: step(i+1))
+            else:
+                # animasyon bitti: temporary objeyi sil ve hamleyi uygula
+                self.canvas.delete(temp)
+                self.push_move(frm,to)
+                self.draw_board()
+                if after_cb:
+                    after_cb()
+        step()
+
+    def push_move(self, frm, to):
+        fr,fc = frm
+        tr,tc = to
+        moved = self.board[fr][fc]
+        captured = self.board[tr][tc]
+        self.history.append((fr,fc,tr,tc,moved,captured))
+        self.board[tr][tc] = moved
+        self.board[fr][fc] = '.'
+        if moved == 'P' and tr == 0:
+            self.board[tr][tc] = 'Q'
+        if moved == 'p' and tr == 7:
+            self.board[tr][tc] = 'q'
+
+    def pop_move(self):
+        if not self.history:
+            return
+        fr,fc,tr,tc,moved,captured = self.history.pop()
+        self.board[fr][fc] = moved
+        self.board[tr][tc] = captured
+
+    def is_square_attacked(self, r, c, by_side):
+        for i in range(8):
+            for j in range(8):
+                p = self.board[i][j]
+                if p == '.':
+                    continue
+                if (p.isupper() and by_side=='w') or (p.islower() and by_side=='b'):
+                    moves = self._pseudo_moves_for_piece(i,j, attacks_only=True)
+                    if (r,c) in moves:
+                        return True
+        return False
+
+    def king_position(self, side):
+        target = 'K' if side=='w' else 'k'
+        for i in range(8):
+            for j in range(8):
+                if self.board[i][j] == target:
+                    return (i,j)
+        return None
+
+    def in_check(self, side):
+        kp = self.king_position(side)
+        if not kp:
+            return True
+        return self.is_square_attacked(kp[0], kp[1], 'b' if side=='w' else 'w')
+
+    def get_legal_moves_for_square(self, r, c):
+        p = self.board[r][c]
+        if p == '.':
+            return []
+        side = 'w' if p.isupper() else 'b'
+        moves = self._pseudo_moves_for_piece(r,c, attacks_only=False)
+        legal = []
+        for (tr,tc) in moves:
+            self.push_move((r,c),(tr,tc))
+            king_in_check = self.in_check(side)
+            self.pop_move()
+            if not king_in_check:
+                legal.append((tr,tc))
+        return legal
+
+    def generate_all_legal_moves(self, side):
+        all_moves = []
+        for r in range(8):
+            for c in range(8):
+                p = self.board[r][c]
+                if p == '.':
+                    continue
+                if (side == 'w' and p.isupper()) or (side == 'b' and p.islower()):
+                    for mv in self.get_legal_moves_for_square(r,c):
+                        all_moves.append(((r,c), mv))
+        return all_moves
+
+    def _pseudo_moves_for_piece(self, r, c, attacks_only=False):
+        moves = []
+        p = self.board[r][c]
+        if p == '.':
+            return moves
+        is_white = p.isupper()
+        piece = p.lower()
+
+        if piece == 'p':
+            if is_white:
+                if not attacks_only:
+                    if r-1 >= 0 and self.board[r-1][c]=='.':
+                        moves.append((r-1,c))
+                        if r==6 and self.board[r-2][c]=='.':
+                            moves.append((r-2,c))
+                for dc in (-1,1):
+                    nr, nc = r-1, c+dc
+                    if 0<=nr<8 and 0<=nc<8 and self.board[nr][nc] != '.' and self.board[nr][nc].islower():
+                        moves.append((nr,nc))
+            else:
+                if not attacks_only:
+                    if r+1 < 8 and self.board[r+1][c]=='.':
+                        moves.append((r+1,c))
+                        if r==1 and self.board[r+2][c]=='.':
+                            moves.append((r+2,c))
+                for dc in (-1,1):
+                    nr, nc = r+1, c+dc
+                    if 0<=nr<8 and 0<=nc<8 and self.board[nr][nc] != '.' and self.board[nr][nc].isupper():
+                        moves.append((nr,nc))
+            return moves
+
+        if piece == 'n':
+            for dr,dc in [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]:
+                nr, nc = r+dr, c+dc
+                if 0<=nr<8 and 0<=nc<8:
+                    target = self.board[nr][nc]
+                    if target == '.' or (target.isupper() if not is_white else target.islower()):
+                        moves.append((nr,nc))
+            return moves
+
+        if piece in ('b','r','q'):
+            if piece == 'b':
+                dirs = [(-1,-1),(-1,1),(1,-1),(1,1)]
+            elif piece == 'r':
+                dirs = [(-1,0),(1,0),(0,-1),(0,1)]
+            else:
+                dirs = [(-1,-1),(-1,1),(1,-1),(1,1),(-1,0),(1,0),(0,-1),(0,1)]
+            for dr,dc in dirs:
+                nr, nc = r+dr, c+dc
+                while 0<=nr<8 and 0<=nc<8:
+                    target = self.board[nr][nc]
+                    if target == '.':
+                        moves.append((nr,nc))
+                    else:
+                        if (target.isupper() and is_white) or (target.islower() and not is_white):
+                            break
+                        moves.append((nr,nc))
+                        break
+                    nr += dr
+                    nc += dc
+            return moves
+
+        if piece == 'k':
+            for dr in (-1,0,1):
+                for dc in (-1,0,1):
+                    if dr==0 and dc==0:
+                        continue
+                    nr, nc = r+dr, c+dc
+                    if 0<=nr<8 and 0<=nc<8:
+                        target = self.board[nr][nc]
+                        if target == '.' or (target.isupper() if not is_white else target.islower()):
+                            moves.append((nr,nc))
+            return moves
+
+        return moves
+
+    def evaluate(self):
+        score = 0
+        mobility_white = 0
+        mobility_black = 0
+        for r in range(8):
+            for c in range(8):
+                p = self.board[r][c]
+                if p == '.':
+                    continue
+                v = PIECE_VALUES.get(p,0)
+                if p.isupper():
+                    score += v
+                    mobility_white += len(self._pseudo_moves_for_piece(r,c, attacks_only=False))
+                else:
+                    score -= v
+                    mobility_black += len(self._pseudo_moves_for_piece(r,c, attacks_only=False))
+        score += 10 * (mobility_white - mobility_black)
+        return score
+
+    def is_capture(self, frm, to):
+        tr,tc = to
+        return self.board[tr][tc] != '.'
+
+    def mvv_lva(self, frm, to):
+        fr,fc = frm
+        tr,tc = to
+        moved = self.board[fr][fc]
+        captured = self.board[tr][tc]
+        if captured == '.':
+            return 0
+        return PIECE_VALUES.get(captured.lower() if captured.islower() else captured,0)*100 - PIECE_VALUES.get(moved.lower() if moved.islower() else moved,0)
+
+    def score_move_for_ordering(self, frm, to):
+        fr,fc = frm
+        tr,tc = to
+        moved = self.board[fr][fc]
+        captured = self.board[tr][tc]
+        score = 0
+        if captured != '.':
+            score += 100000 + self.mvv_lva(frm,to)
+        if moved.lower() == 'p' and fr != tr:
+            score += 10
+        score += self.hist_heur.get((fr,fc,tr,tc), 0)
+        return score
+
+    def ai_move(self):
+        moves = self.generate_all_legal_moves('b')
+        if not moves:
+            if self.in_check('b'):
+                messagebox.showinfo('Oyun bitti', 'Mat! Tebrikler, kazandın')
+            else:
+                messagebox.showinfo('Oyun bitti', 'Pat!')
+            return
+
+        start = time.time()
+        best_move = None
+        captures = [m for m in moves if self.is_capture(m[0], m[1])]
+        non_caps = [m for m in moves if not self.is_capture(m[0], m[1])]
+        moves_ord = sorted(captures, key=lambda m: -self.mvv_lva(m[0], m[1])) + sorted(non_caps, key=lambda m: -self.score_move_for_ordering(m[0], m[1]))
+
+        for depth in range(1, self.ai_depth+1):
+            best_score = -10**9
+            alpha = -10**9
+            beta = 10**9
+            for (frm,to) in moves_ord:
+                if time.time() - start > self.time_limit:
+                    break
+                self.push_move(frm,to)
+                score = self.search(depth-1, alpha, beta, False, start)
+                self.pop_move()
+                if score > best_score:
+                    best_score = score
+                    best_move = (frm,to)
+                    alpha = max(alpha, score)
+            if time.time() - start > self.time_limit:
+                break
+
+        if best_move is None:
+            best_move = random.choice(moves)
+
+        # animasyonlu uygulama
+        self.turn = 'busy'
+        self.info_label.config(text='Robot taşını sürdürüyor...')
+        self.animate_and_push(best_move[0], best_move[1], after_cb=self.after_ai_move)
+
+    def after_ai_move(self):
+        # robot animasyonu tamamlandıktan sonra
+        # history heuristic güncellemesi
+        self.turn = 'w'
+        frm,to = self.history[-1][0:2], self.history[-1][2:4]
+        self.hist_heur[(frm[0],frm[1],to[0],to[1])] = self.hist_heur.get((frm[0],frm[1],to[0],to[1]), 0) + 100
+        self.info_label.config(text='Siz oynayın.')
+
+    def search(self, depth, alpha, beta, maximizing, start_time):
+        key = board_to_key(self.board)
+        tt_entry = self.ttable.get(key)
+        if tt_entry and tt_entry[0] >= depth:
+            return tt_entry[1]
+
+        if depth == 0:
+            val = self.quiescence(alpha, beta, maximizing)
+            self.ttable[key] = (depth, val)
+            return val
+
+        if time.time() - start_time > self.time_limit:
+            return self.evaluate()
+
+        side = 'b' if maximizing else 'w'
+        moves = self.generate_all_legal_moves(side)
+        if not moves:
+            if self.in_check(side):
+                return -999999 if maximizing else 999999
+            return 0
+
+        captures = [m for m in moves if self.is_capture(m[0], m[1])]
+        non_caps = [m for m in moves if not self.is_capture(m[0], m[1])]
+        moves = sorted(captures, key=lambda m: -self.mvv_lva(m[0], m[1])) + sorted(non_caps, key=lambda m: -self.score_move_for_ordering(m[0], m[1]))
+
+        if maximizing:
+            value = -10**9
+            for (frm,to) in moves:
+                self.push_move(frm,to)
+                val = self.search(depth-1, alpha, beta, False, start_time)
+                self.pop_move()
+                if val >= beta:
+                    self.hist_heur[(frm[0],frm[1],to[0],to[1])] = self.hist_heur.get((frm[0],frm[1],to[0],to[1]),0) + (1 << depth)
+                    value = val
+                    break
+                if val > value:
+                    value = val
+                alpha = max(alpha, value)
+            self.ttable[key] = (depth, value)
+            return value
+        else:
+            value = 10**9
+            for (frm,to) in moves:
+                self.push_move(frm,to)
+                val = self.search(depth-1, alpha, beta, True, start_time)
+                self.pop_move()
+                if val <= alpha:
+                    self.hist_heur[(frm[0],frm[1],to[0],to[1])] = self.hist_heur.get((frm[0],frm[1],to[0],to[1]),0) + (1 << depth)
+                    value = val
+                    break
+                if val < value:
+                    value = val
+                beta = min(beta, value)
+            self.ttable[key] = (depth, value)
+            return value
+
+    def quiescence(self, alpha, beta, maximizing):
+        stand_pat = self.evaluate()
+        if maximizing:
+            if stand_pat >= beta:
+                return beta
+            if alpha < stand_pat:
+                alpha = stand_pat
+            moves = self.generate_all_legal_moves('b')
+            caps = [m for m in moves if self.is_capture(m[0], m[1])]
+            caps = sorted(caps, key=lambda m: -self.mvv_lva(m[0], m[1]))
+            for (frm,to) in caps:
+                self.push_move(frm,to)
+                val = self.quiescence(alpha, beta, False)
+                self.pop_move()
+                if val >= beta:
+                    return beta
+                if val > alpha:
+                    alpha = val
+            return alpha
+        else:
+            if stand_pat <= alpha:
+                return alpha
+            if beta > stand_pat:
+                beta = stand_pat
+            moves = self.generate_all_legal_moves('w')
+            caps = [m for m in moves if self.is_capture(m[0], m[1])]
+            caps = sorted(caps, key=lambda m: self.mvv_lva(m[0], m[1]))
+            for (frm,to) in caps:
+                self.push_move(frm,to)
+                val = self.quiescence(alpha, beta, True)
+                self.pop_move()
+                if val <= alpha:
+                    return alpha
+                if val < beta:
+                    beta = val
+            return beta
+
+    def minimax(self, depth, alpha, beta, maximizing):
+        return self.search(depth, alpha, beta, maximizing, time.time())
+
+# Parametresiz API
+
+def open_chess_game():
+    ChessGame()
+
 
 def open_widgets():
     """Windows7 tarzı küçük gadget/widget paneli açar.
@@ -3074,72 +4121,460 @@ def open_ball_game():
     label = Label(win, text="Score: 0")
     label.pack()
 
-
 def open_snake_game():
-    win = Toplevel(root)
-    win.title("Yılan Oyunu")
-    win.geometry("400x400")
-    canvas = tk.Canvas(win, width=400, height=400, bg="black")
-    canvas.pack()
-    canvas.focus_set()
-    snake = [(200, 200)]
-    snake_dir = "Right"
-    food = [random.randrange(0, 20) * 20, random.randrange(0, 20) * 20]
-    food_rect = canvas.create_rectangle(
-        food[0], food[1], food[0] + 20, food[1] + 20, fill="green")
+    import tkinter as tk
+    from tkinter import messagebox
+    import random
+    import time
+    import os
 
-    def move_snake():
-        nonlocal snake, snake_dir, food
+    HIGH_SCORE_FILE = "snake_highscore.txt"
+    CELL = 20
+    GRID = 20
+    W = CELL * GRID
+    SPEED_START = 200
+
+    # Root yönetimi: var olan global 'root' kullanılırsa o tercih edilir,
+    # yoksa geçici bir root oluşturulur ve fonksiyon mainloop'u başlatır.
+    created_root = False
+    parent = globals().get("root", None) or tk._default_root
+    if parent is None:
+        parent = tk.Tk()
+        parent.withdraw()
+        created_root = True
+
+    win = tk.Toplevel(parent)
+    win.title("Yılan Oyunu — Retro")
+    win.resizable(False, False)
+
+    canvas = tk.Canvas(win, width=W, height=W, bg="#070707", highlightthickness=0)
+    canvas.pack()
+
+    # Oyun durumu (outer scope değişkenleri)
+    snake = [((W // 2 - CELL), W // 2)]
+    snake_dir = "Right"
+    score = 0
+    level = 1
+    food_eaten = 0
+    speed = SPEED_START
+    paused = False
+    running = True
+    job = None
+    powerup = None
+    powerup_timer = 0
+    powerup_active = False
+    walls_kill = True  # duvarlara çarpınca ölür by default
+
+    # highscore yükle/kaydet
+    def load_highscore():
+        try:
+            if os.path.exists(HIGH_SCORE_FILE):
+                with open(HIGH_SCORE_FILE, "r") as f:
+                    return int(f.read().strip() or 0)
+        except Exception:
+            pass
+        return 0
+
+    def save_highscore(val):
+        try:
+            with open(HIGH_SCORE_FILE, "w") as f:
+                f.write(str(int(val)))
+        except Exception:
+            pass
+
+    highscore = load_highscore()
+
+    # Grid çizimi
+    def draw_grid():
+        canvas.delete("grid")
+        canvas.create_rectangle(0, 0, W, W, fill="#070707", outline="#070707", tag="grid")
+        for i in range(0, W, CELL):
+            canvas.create_line(i, 0, i, W, fill="#111111", tag="grid")
+            canvas.create_line(0, i, W, i, fill="#111111", tag="grid")
+
+    # KONTROLLER ve skor (Label yerine canvas text)
+    def draw_controls_and_score():
+        # "EN ÜSTTE KONTROLLER" isteğine uygun olarak canvas'ın üst kısmına yazıyoruz.
+        canvas.delete("controls")
+        # KONTROLLER başlığı
+        canvas.create_text(W // 2, 6, text="KONTROLLER", fill="#c7ff3d",
+                           font=("Courier", 10, "bold"), tag="controls", anchor="n")
+        # kontrol açıklamaları (küçük, başlığın altında)
+        controls_line = "Y/Enter/Space: Başla   P: Duraklat   R: Yeniden   Q: Çık   W: Duvar Toggle"
+        canvas.create_text(W // 2, 20, text=controls_line, fill="#9be564",
+                           font=("Courier", 8), tag="controls", anchor="n")
+        # skor / seviye sağ üstte
+        canvas.delete("score")
+        score_text = f"Skor: {score}  Seviye: {level}  En Yüksek: {highscore}"
+        canvas.create_text(W - 6, 6, text=score_text, fill="#c7ff3d",
+                           font=("Courier", 9), tag="score", anchor="ne")
+
+    # Food / Powerup spawn
+    food = [random.randrange(0, GRID) * CELL, random.randrange(0, GRID) * CELL]
+    food_rect = canvas.create_rectangle(food[0], food[1], food[0] + CELL, food[1] + CELL,
+                                       fill="#ff4b4b", outline="#8b0000", tag="food")
+
+    def spawn_food():
+        nonlocal food, food_rect, powerup, powerup_active, powerup_timer
+        tries = 0
+        while True:
+            fx = random.randrange(0, GRID) * CELL
+            fy = random.randrange(0, GRID) * CELL
+            if (fx, fy) not in snake:
+                food = [fx, fy]
+                break
+            tries += 1
+            if tries > 200:
+                break
+        try:
+            canvas.delete("food")
+        except Exception:
+            pass
+        food_rect = canvas.create_rectangle(food[0], food[1], food[0] + CELL, food[1] + CELL,
+                                           fill="#ff4b4b", outline="#8b0000", tag="food")
+
+        # küçük olasılıkla powerup spawn et
+        if not powerup_active and random.random() < 0.12:
+            tries = 0
+            while tries < 200:
+                px = random.randrange(0, GRID) * CELL
+                py = random.randrange(0, GRID) * CELL
+                if (px, py) not in snake and [px, py] != food:
+                    powerup = [px, py]
+                    powerup_active = True
+                    powerup_timer = 120
+                    try:
+                        canvas.delete("power")
+                    except Exception:
+                        pass
+                    canvas.create_rectangle(px, py, px + CELL, py + CELL, fill="#ffd166", outline="#ffb347", tag="power")
+                    break
+                tries += 1
+
+    # Snake çizimi
+    def draw_snake():
+        canvas.delete("snake")
+        head = snake[-1]
+        canvas.create_rectangle(head[0], head[1], head[0] + CELL, head[1] + CELL,
+                                fill="#c7ff3d", outline="#4caf50", tag="snake")
+        for seg in snake[:-1]:
+            canvas.create_rectangle(seg[0], seg[1], seg[0] + CELL, seg[1] + CELL,
+                                    fill="#9be564", outline="#6bbf3b", tag="snake")
+
+    # Skor güncelleme (canvas üzerinden)
+    def update_info():
+        nonlocal highscore
+        if score > highscore:
+            highscore = score
+            save_highscore(highscore)
+        # güncelle
+        try:
+            canvas.delete("score")
+        except Exception:
+            pass
+        score_text = f"Skor: {score}  Seviye: {level}  En Yüksek: {highscore}"
+        canvas.create_text(W - 6, 6, text=score_text, fill="#c7ff3d",
+                           font=("Courier", 9), tag="score", anchor="ne")
+
+    # Oyun bitti
+    def game_over():
+        nonlocal running, job
+        running = False
+        if job:
+            try:
+                win.after_cancel(job)
+            except Exception:
+                pass
+        # canvas üzerinde uyarı (label yok)
+        canvas.create_text(W // 2, W // 2 - 10, text="OYUN BİTTİ", fill="#ff6b6b", font=("Courier", 18, "bold"), tag="end")
+        canvas.create_text(W // 2, W // 2 + 16,
+                           text=f"Skorunuz: {score}  (R: Yeniden  Y: Başla  Q: Çık)", fill="#c7ff3d", font=("Courier", 10), tag="end")
+        # ek popup istemezsek yorum satırına al; kullanıcı önce 'labelları kaldır' dedi, popup bırakıyorum opsiyonel.
+        try:
+            messagebox.showinfo("Oyun Bitti", f"Skorunuz: {score}")
+        except Exception:
+            pass
+        if created_root:
+            try:
+                parent.quit()
+            except Exception:
+                pass
+
+    # Hareket ve oyun döngüsü
+    def move():
+        nonlocal snake, snake_dir, score, food_eaten, speed, level, job, powerup_active, powerup_timer
+        if not running or paused:
+            # eğer pauseda ya da durduysa çok sık job koyma
+            try:
+                job = win.after(100, move)
+            except Exception:
+                pass
+            return
+
         x, y = snake[-1]
         if snake_dir == "Right":
-            x += 20
+            x += CELL
         elif snake_dir == "Left":
-            x -= 20
+            x -= CELL
         elif snake_dir == "Up":
-            y -= 20
+            y -= CELL
         elif snake_dir == "Down":
-            y += 20
-        if x < 0 or x >= 400 or y < 0 or y >= 400 or (x, y) in snake:
-            messagebox.showinfo("Oyun Bitti", f"Skorunuz: {len(snake)}")
-            win.destroy()
-            return
+            y += CELL
+
+        # duvar kontrolü
+        if x < 0 or x >= W or y < 0 or y >= W:
+            if walls_kill:
+                return game_over()
+            else:
+                x %= W
+                y %= W
+
+        if (x, y) in snake:
+            return game_over()
+
         snake.append((x, y))
-        canvas.delete("snake")
-        for seg in snake:
-            canvas.create_rectangle(
-                seg[0],
-                seg[1],
-                seg[0] + 20,
-                seg[1] + 20,
-                fill="white",
-                tag="snake")
+        ate = False
         if x == food[0] and y == food[1]:
-            food = [random.randrange(0, 20) * 20, random.randrange(0, 20) * 20]
-            canvas.coords(
-                food_rect,
-                food[0],
-                food[1],
-                food[0] + 20,
-                food[1] + 20)
+            ate = True
+            food_eaten += 1
+            score += 10
+            if food_eaten % 5 == 0:
+                level += 1
+                speed = max(50, int(speed * 0.85))
         else:
             snake.pop(0)
-        win.after(200, move_snake)
 
+        # powerup yeme kontrolü
+        if powerup_active and powerup and (x == powerup[0] and y == powerup[1]):
+            score += 50
+            powerup_active = False
+            powerup_timer = 0
+            try:
+                canvas.delete("power")
+            except Exception:
+                pass
+            speed = max(40, int(speed * 0.95))
+
+        if ate:
+            spawn_food()
+        else:
+            # yeme efekti
+            try:
+                fillc = "#ff4b4b" if int(time.time() * 2) % 2 == 0 else "#ff6b6b"
+                canvas.itemconfig("food", fill=fillc)
+            except Exception:
+                pass
+
+        if powerup_active:
+            powerup_timer -= 1
+            if powerup_timer <= 0:
+                powerup_active = False
+                try:
+                    canvas.delete("power")
+                except Exception:
+                    pass
+
+        draw_snake()
+        update_info()
+
+        # schedule next
+        try:
+            if job:
+                win.after_cancel(job)
+        except Exception:
+            pass
+        try:
+            job = win.after(speed, move)
+        except Exception:
+            pass
+
+    # Yön değiştirici (ok tuşları)
     def change_dir(event):
         nonlocal snake_dir
-        opposite = {
-            "Up": "Down",
-            "Down": "Up",
-            "Left": "Right",
-            "Right": "Left"}
-        if event.keysym in [
-            "Up",
-            "Down",
-            "Left",
-                "Right"] and event.keysym != opposite.get(snake_dir):
-            snake_dir = event.keysym
-    win.bind("<Key>", change_dir)
-    move_snake()
+        key = event.keysym
+        opp = {"Up": "Down", "Down": "Up", "Left": "Right", "Right": "Left"}
+        if key in ("Up", "Down", "Left", "Right"):
+            if opp.get(snake_dir) != key:
+                snake_dir = key
+
+    # Genel tuşlar: P pause, R restart, Q quit, W duvar toggle, Y start
+    def on_key(event):
+        nonlocal paused, running, snake, snake_dir, score, level, food_eaten, speed, job, powerup_active, powerup_timer, walls_kill
+        k = event.keysym.lower()
+        if k in ("up", "down", "left", "right"):
+            change_dir(event)
+        elif k == "p":
+            if not running:
+                return
+            paused = not paused
+            if paused:
+                try:
+                    if job:
+                        win.after_cancel(job)
+                except Exception:
+                    pass
+                canvas.create_text(W // 2, W // 2, text="DURAKLATILDI\n(P bas)", fill="#8be9fd", font=("Courier", 16), tag="pause")
+            else:
+                canvas.delete("pause")
+                try:
+                    job = win.after(speed, move)
+                except Exception:
+                    pass
+        elif k == "r":
+            try:
+                if job:
+                    win.after_cancel(job)
+            except Exception:
+                pass
+            # reset state
+            score = 0
+            level = 1
+            food_eaten = 0
+            speed = SPEED_START
+            snake = [((W // 2 - CELL), W // 2)]
+            snake_dir = "Right"
+            paused = False
+            running = True
+            try:
+                canvas.delete("all")
+            except Exception:
+                pass
+            draw_grid()
+            draw_controls_and_score()
+            spawn_food()
+            draw_snake()
+            update_info()
+            try:
+                job = win.after(speed, move)
+            except Exception:
+                pass
+        elif k == "q":
+            try:
+                if job:
+                    win.after_cancel(job)
+            except Exception:
+                pass
+            running = False
+            win.destroy()
+            if created_root:
+                try:
+                    parent.quit()
+                except Exception:
+                    pass
+        elif k == "w":
+            walls_kill = not walls_kill
+            canvas.delete("note")
+            canvas.create_text(W // 2, 24, text=f"Duvar modu: {'Açık' if walls_kill else 'Wrap'}",
+                               fill="#ffb86b", font=("Courier", 8), tag="note", anchor="n")
+            win.after(1000, lambda: canvas.delete("note"))
+        elif k in ("y", "space", "return"):
+            # eğer oyun başlamamış ya da bitti ise başlat / start
+            if not running:
+                # yeniden başlat yerine yeni başla
+                score = 0
+                level = 1
+                food_eaten = 0
+                speed = SPEED_START
+                snake = [((W // 2 - CELL), W // 2)]
+                snake_dir = "Right"
+                paused = False
+                running = True
+                canvas.delete("all")
+                draw_grid()
+                draw_controls_and_score()
+                spawn_food()
+                draw_snake()
+                update_info()
+                try:
+                    job = win.after(speed, move)
+                except Exception:
+                    pass
+            else:
+                # eğer start ekranındaysak başlat
+                if job is None:
+                    try:
+                        job = win.after(speed, move)
+                    except Exception:
+                        pass
+
+    # Başlangıç ekranı
+    def show_start():
+        canvas.delete("all")
+        draw_grid()
+        draw_controls_and_score()
+        canvas.create_text(W // 2, W // 2 - 40, text="S A R M A  —  R E T R O  S N A K E",
+                           fill="#8be9fd", font=("Courier", 14, "bold"), tag="start")
+        canvas.create_text(W // 2, W // 2 + 8, text="Y/Enter/Space: Başla   P: Duraklat   R: Yeniden   Q: Çık",
+                           fill="#c7ff3d", font=("Courier", 10), tag="start")
+
+    # Başlatma
+    draw_grid()
+    show_start()
+    spawn_food()
+    draw_snake()
+    draw_controls_and_score()
+    canvas.focus_set()
+    win.bind("<Key>", on_key)
+
+# --- Güvenlik: Eğer _ToolTip tanımlı değilse, basit ve güvenli bir fallback tanımla ---
+try:
+    _ToolTip  # eğer zaten varsa hiçbir şey yapma
+except NameError:
+    try:
+        from tkinter import Toplevel, Label
+    except Exception:
+        # Eğer tkinter isimleri yoksa, fallback için boş bir sınıf üret
+        class _ToolTip:
+            def __init__(self, widget, text): pass
+            def show(self, _=None): pass
+            def hide(self, _=None): pass
+    else:
+        class _ToolTip:
+            def __init__(self, widget, text):
+                self.widget = widget
+                self.text = text
+                self.tip = None
+                try:
+                    widget.bind("<Enter>", self.show)
+                    widget.bind("<Leave>", self.hide)
+                except Exception:
+                    pass
+
+            def show(self, _=None):
+                if self.tip:
+                    return
+                try:
+                    x = self.widget.winfo_rootx() + 20
+                    y = self.widget.winfo_rooty() + 20
+                    self.tip = Toplevel(self.widget)
+                    # başlık çubuğu olmasın
+                    try:
+                        self.tip.wm_overrideredirect(True)
+                    except Exception:
+                        pass
+                    try:
+                        self.tip.wm_geometry(f"+{x}+{y}")
+                    except Exception:
+                        self.tip.geometry("+%d+%d" % (x, y))
+                    Label(self.tip, text=self.text, bg="black", fg="white",
+                          padx=6, pady=2, font=("Segoe UI", 8)).pack()
+                except Exception:
+                    # tooltip gösterimi başarısız olursa sessizce geç
+                    try:
+                        if self.tip:
+                            self.tip.destroy()
+                            self.tip = None
+                    except Exception:
+                        pass
+
+            def hide(self, _=None):
+                try:
+                    if self.tip:
+                        self.tip.destroy()
+                        self.tip = None
+                except Exception:
+                    pass
+
 
 # maria_pygame_open.py
 # Kullanım:
@@ -5274,7 +6709,7 @@ def open_paint_app():
     import tkinter as tk
     from tkinter import Toplevel, colorchooser, filedialog, simpledialog, messagebox
     try:
-        from PIL import Image, ImageDraw, ImageTk, ImageOps
+        from PIL import Image, ImgeDraw, ImageTk, ImageOps
         PIL_OK = True
         Image_module = Image  # kolay referans
     except Exception:
@@ -5816,23 +7251,28 @@ import sys
 import tkinter as tk
 
 # PyQt imports (gecikmeli import, Tk-only senaryolarda da hata vermez)
-from PyQt6.QtCore import QUrl
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel, QSizePolicy
+from PyQt6.QtCore import QUrl, Qt
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
+    QLabel, QSizePolicy, QTabWidget, QToolButton
+)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
+
 # ----------------------------
-# Basit gömülebilir BrowserWidget
+# Basit gömülebilir BrowserWidget (sekme, devtools, arama eklendi)
 # ----------------------------
 class BrowserWidget(QWidget):
     def __init__(self, url: str = "about:blank", parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Lightning - Embedded")
-        self.resize(900, 600)
+        self.resize(1100, 700)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6,6,6,6)
-        layout.setSpacing(6)
+        # tek satır kaldırıldı: layout.setSpacing(6)
 
+        # Toolbar: gezinme + url + sekme yönetimi + devtools + arama
         toolbar = QWidget()
         tlay = QHBoxLayout(toolbar)
         tlay.setContentsMargins(0,0,0,0)
@@ -5846,6 +7286,20 @@ class BrowserWidget(QWidget):
             b.setFixedWidth(36)
             tlay.addWidget(b)
 
+        # Sekme yönetimi butonları
+        self.new_tab_btn = QToolButton()
+        self.new_tab_btn.setText("+")
+        self.new_tab_btn.setToolTip("Yeni Sekme")
+        self.new_tab_btn.setFixedWidth(28)
+        tlay.addWidget(self.new_tab_btn)
+
+        self.close_tab_btn = QToolButton()
+        self.close_tab_btn.setText("−")
+        self.close_tab_btn.setToolTip("Sekmeyi Kapat")
+        self.close_tab_btn.setFixedWidth(28)
+        tlay.addWidget(self.close_tab_btn)
+
+        # URL çubuğu
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("Adres gir (ör. example.com veya https://...)")
         self.url_edit.setClearButtonEnabled(True)
@@ -5855,32 +7309,136 @@ class BrowserWidget(QWidget):
         self.go_btn = QPushButton("Git")
         self.go_btn.setFixedWidth(48)
         tlay.addWidget(self.go_btn)
+
+        # Devtools toggle
+        self.devtools_btn = QPushButton("DevTools")
+        self.devtools_btn.setFixedWidth(80)
+        tlay.addWidget(self.devtools_btn)
+
+        # Arama çubuğu (sayfa içi)
+        self.find_edit = QLineEdit()
+        self.find_edit.setPlaceholderText("Sayfa içinde ara...")
+        self.find_edit.setMaximumWidth(200)
+        tlay.addWidget(self.find_edit)
+
+        self.find_next_btn = QPushButton("→")
+        self.find_next_btn.setFixedWidth(36)
+        tlay.addWidget(self.find_next_btn)
+
         layout.addWidget(toolbar)
 
-        self.web = QWebEngineView()
-        layout.addWidget(self.web)
+        # Sekmeler
+        self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self._close_tab)
+        layout.addWidget(self.tabs, stretch=1)
 
+        # Alt durum etiketi
         self.status = QLabel("")
         layout.addWidget(self.status)
 
+        # Devtools penceresi (kullanılınca oluşturulacak)
+        self._devtools_view = None
+        self._devtools_shown = False
+
         # bağlantılar
-        self.back_btn.clicked.connect(self.web.back)
-        self.forward_btn.clicked.connect(self.web.forward)
-        self.reload_btn.clicked.connect(self.web.reload)
-        self.stop_btn.clicked.connect(self.web.stop)
+        self.back_btn.clicked.connect(lambda: self._current_web().back())
+        self.forward_btn.clicked.connect(lambda: self._current_web().forward())
+        self.reload_btn.clicked.connect(lambda: self._current_web().reload())
+        self.stop_btn.clicked.connect(lambda: self._current_web().stop())
         self.go_btn.clicked.connect(self._on_go)
         self.url_edit.returnPressed.connect(self._on_go)
 
-        self.web.urlChanged.connect(self._on_url_changed)
-        
+        self.new_tab_btn.clicked.connect(lambda: self._add_tab("about:blank", make_active=True))
+        self.close_tab_btn.clicked.connect(lambda: self._close_tab(self.tabs.currentIndex()))
 
+        self.devtools_btn.clicked.connect(self._toggle_devtools)
+
+        self.find_edit.returnPressed.connect(self._on_find)
+        self.find_next_btn.clicked.connect(self._on_find)
+
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+        # İlk sekmeyi ekle
+        self._add_tab(url)
         self.load_url(url)
 
+    # yeni yardımcılar (isimler orijinal fonksiyonları bozmaz)
+    def _create_webview(self, url: str):
+        web = QWebEngineView()
+        web.setUrl(QUrl.fromUserInput(url))
+        web.urlChanged.connect(self._on_url_changed)
+        web.titleChanged.connect(lambda title: self._update_tab_title_for_web(web, title))
+        web.loadFinished.connect(lambda ok: self._on_load_finished(web, ok))
+        return web
+
+    def _add_tab(self, url: str = "about:blank", make_active: bool = False):
+        web = self._create_webview(url)
+        idx = self.tabs.addTab(web, "Yeni Sekme")
+        if make_active:
+            self.tabs.setCurrentIndex(idx)
+        return web
+
+    def _close_tab(self, index: int):
+        if index < 0:
+            return
+        widget = self.tabs.widget(index)
+        if widget:
+            try:
+                widget.deleteLater()
+            except Exception:
+                pass
+        self.tabs.removeTab(index)
+        # Sekme kalmadıysa bir tane aç
+        if self.tabs.count() == 0:
+            self._add_tab("about:blank", make_active=True)
+
+    def _current_web(self) -> QWebEngineView:
+        w = self.tabs.currentWidget()
+        if isinstance(w, QWebEngineView):
+            return w
+        # fallback: eğer widget değilse yeni sekme aç
+        return self._create_and_set_tab("about:blank")
+
+    def _create_and_set_tab(self, url: str):
+        web = self._add_tab(url, make_active=True)
+        return web
+
+    def _on_tab_changed(self, idx: int):
+        web = self._current_web()
+        try:
+            cur_url = web.url().toString()
+            self.url_edit.setText(cur_url)
+        except Exception:
+            pass
+        # Eğer devtools açıksa yeni sayfaya bağla
+        if self._devtools_shown and self._devtools_view is not None:
+            try:
+                web.page().setDevToolsPage(self._devtools_view.page())
+            except Exception:
+                pass
+
+    def _update_tab_title_for_web(self, web: QWebEngineView, title: str):
+        # sekme başlığını güncelle
+        for i in range(self.tabs.count()):
+            if self.tabs.widget(i) is web:
+                self.tabs.setTabText(i, title or "Yeni Sekme")
+                break
+
+    def _on_load_finished(self, web: QWebEngineView, ok: bool):
+        if ok and self.tabs.currentWidget() is web:
+            self.status.setText("Yüklendi: " + web.url().toString())
+        elif not ok and self.tabs.currentWidget() is web:
+            self.status.setText("Yükleme başarısız.")
+
+    # Orijinal fonksiyon isimleri değişmedi:
     def load_url(self, url: str):
         q = QUrl.fromUserInput(url)
         if q.isEmpty():
             q = QUrl("about:blank")
-        self.web.load(q)
+        # mevcut sekmeyi yükle
+        web = self._current_web()
+        web.load(q)
 
     def _on_go(self):
         t = self.url_edit.text().strip()
@@ -5889,16 +7447,65 @@ class BrowserWidget(QWidget):
 
     def _on_url_changed(self, qurl: QUrl):
         new = qurl.toString()
-        if self.url_edit.text() != new:
+        # sadece aktif sekmedeki url düzenleyiciyi güncelle
+        web = self._current_web()
+        try:
+            if web.url().toString() == new and self.url_edit.text() != new:
+                self.url_edit.setText(new)
+            elif self.tabs.currentWidget() is web and self.url_edit.text() != new:
+                self.url_edit.setText(new)
+        except Exception:
+            # bazı durumlarda widget hemen hazır olmayabilir
             self.url_edit.setText(new)
 
+    # devtools göstergesini aç/kapat
+    def _toggle_devtools(self):
+        web = self._current_web()
+        if self._devtools_view is None:
+            # yeni bir devtools QWebEngineView oluştur
+            self._devtools_view = QWebEngineView()
+            self._devtools_view.setWindowTitle("DevTools")
+            self._devtools_view.resize(900, 600)
+        if not self._devtools_shown:
+            try:
+                web.page().setDevToolsPage(self._devtools_view.page())
+                self._devtools_view.show()
+                self._devtools_shown = True
+                self.devtools_btn.setText("DevTools ○")
+            except Exception as e:
+                self.status.setText("Devtools açılamadı: " + str(e))
+        else:
+            try:
+                # ayrılmayı dene
+                web.page().setDevToolsPage(None)
+                self._devtools_view.hide()
+            except Exception:
+                pass
+            self._devtools_shown = False
+            self.devtools_btn.setText("DevTools")
+
+    # arama
+    def _on_find(self):
+        text = self.find_edit.text().strip()
+        if not text:
+            return
+        web = self._current_web()
+        try:
+            # ileri arama (temel)
+            web.findText("")  # önce temizle (önceki işaretleri sıfırla)
+            web.findText(text)
+            self.status.setText(f"Arandı: {text}")
+        except Exception as e:
+            self.status.setText("Arama hatası: " + str(e))
+
+
 # ----------------------------
-# Globals ve helper'lar
+# Globals ve helper'lar (isimler korunmuş)
 # ----------------------------
 _app = None            # QApplication instance (veya None)
 _window = None         # BrowserWidget instance (veya None)
 _qt_pump_started = False
-DEFAULT_URL = "https://resplendent-malabi-eb642e.netlify.app/"   # open_browser() bu url'i açar; gerekirse globali değiştir.
+DEFAULT_URL = "https://www.google.com/"   # open_browser() bu url'i açar; gerekirse globali değiştir.
 
 def _ensure_qapplication():
     global _app
@@ -5925,7 +7532,7 @@ def _start_qt_pump(root, interval_ms=20):
     root.after(interval_ms, pump)
 
 # ----------------------------
-# İSTEDİĞİN parametresiz fonksiyon
+# İSTEDİĞİN parametresiz fonksiyon (ismi değişmedi)
 # ----------------------------
 def open_browser():
     """
@@ -5942,6 +7549,7 @@ def open_browser():
     # Eğer pencere zaten varsa güncelle ve öne çıkar
     if _window is not None:
         try:
+            # artık sekmeler olduğu için aktif sekmeyi DEFAULT_URL ile güncelle
             _window.load_url(DEFAULT_URL)
             _window.show()
             _window.raise_()
@@ -5961,7 +7569,7 @@ def open_browser():
     _start_qt_pump(root)
 
 # ----------------------------
-# Opsiyonel: program kapanırken PyQt penceresini kapat
+# Opsiyonel: program kapanırken PyQt penceresini kapat (ismi değişmedi)
 # ----------------------------
 def _on_tk_close():
     global _window
@@ -5981,6 +7589,9 @@ def _on_tk_close():
 # root.protocol("WM_DELETE_WINDOW", _on_tk_close)
 # ve DEFAULT_URL globalini buton callback'inde değiştirebilirsin:
 # DEFAULT_URL = "https://yeni-adres.com"; open_browser()
+
+
+
 
 # ---------- Media Player ----------
 
@@ -6743,7 +8354,9 @@ def open_start_menu():
         ("ℹ️ Hakkında", lambda: messagebox.showinfo("BTL hakkında", "BTL4 - BTL version is 4, you use updated version - BTL25_4")),
         ("🚪 Çıkış", lambda: _safe_call(shutdown_animation)),
         ("⚙️ Yapılandırma", lambda: _safe_call(open_control_panel)),
-        ("📘 Kayıt Defteri", lambda: _safe_call(open_reg))
+        ("📘 Kayıt Defteri", lambda: _safe_call(open_reg)),
+        ("♟️ BTL chess", lambda: _safe_call(open_chess_game)),
+        ("📟 Lightning Code", lambda: _safe_call(open_code_editor))
     ]
 
     # frame içine butonlar (scrollable yapılabilir ama boyut yeterli)
@@ -7297,7 +8910,6 @@ add_icon(
     open_winamp,
     deletable=False)
 
-# Paint icon (örnek)
 add_icon(
     1250,
     50,
@@ -7394,5 +9006,4 @@ lang_menu.config(bg="gray30", fg="white")
 lang_menu.pack(side="left", padx=5)
 
 # ---------- Son: mainloop ----------
-if __name__ == "__main__":
-    root.mainloop()
+root.mainloop()
