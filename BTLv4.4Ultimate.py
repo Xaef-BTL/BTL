@@ -764,8 +764,66 @@ def resize_bg(event):
 root.bind('<Configure>', resize_bg)
 
 # ---------- Görev çubuğu ----------
-taskbar = tk.Frame(root, bg="black", height=40)
+taskbar = tk.Frame(root, bg="#111111", height=40, relief="raised", bd=2)
 taskbar.pack(side="bottom", fill="x")
+taskbar.pack_propagate(False)
+
+# Renkler ve parametreler
+normal_start = (17, 17, 17)
+normal_end = (34, 34, 34)
+hover_start = (50, 50, 50)
+hover_end = (80, 80, 80)
+steps = 50
+delay = 20
+
+def rgb_to_hex(rgb):
+    return "#%02x%02x%02x" % rgb
+
+# Hafif geçiş animasyonu
+def animate_color(start_color, end_color, step=0, forward=True, callback=None):
+    ratio = step / steps
+    r = int(start_color[0] + (end_color[0]-start_color[0])*ratio)
+    g = int(start_color[1] + (end_color[1]-start_color[1])*ratio)
+    b = int(start_color[2] + (end_color[2]-start_color[2])*ratio)
+    taskbar.config(bg=rgb_to_hex((r,g,b)))
+    
+    if forward and step < steps:
+        root.after(delay, lambda: animate_color(start_color, end_color, step+1, True, callback))
+    elif not forward and step > 0:
+        root.after(delay, lambda: animate_color(start_color, end_color, step-1, False, callback))
+    elif callback:
+        callback()
+
+# Hover efektleri
+def on_enter(e):
+    animate_color(normal_end, hover_end)
+
+def on_leave(e):
+    animate_color(hover_end, normal_end)
+
+taskbar.bind("<Enter>", on_enter)
+taskbar.bind("<Leave>", on_leave)
+
+# Sürekli hafif geçiş (pulse)
+def pulse(step=0, forward=True):
+    ratio = step / steps
+    r = int(normal_start[0] + (normal_end[0]-normal_start[0])*ratio)
+    g = int(normal_start[1] + (normal_end[1]-normal_start[1])*ratio)
+    b = int(normal_start[2] + (normal_end[2]-normal_start[2])*ratio)
+    taskbar.config(bg=rgb_to_hex((r,g,b)))
+    
+    if forward:
+        if step < steps:
+            root.after(delay, lambda: pulse(step+1, True))
+        else:
+            root.after(delay, lambda: pulse(steps, False))
+    else:
+        if step > 0:
+            root.after(delay, lambda: pulse(step-1, False))
+        else:
+            root.after(delay, lambda: pulse(0, True))
+
+pulse()  # animasyonu başlat
 
 # Clock
 clock_label = tk.Label(taskbar, fg="white", bg="gray20", font=("Arial", 12))
@@ -2111,494 +2169,148 @@ def open_file_manager():
     status.config(
         text="Kısayollar: Delete=Sil, F2=Yeniden adlandır, Ctrl+C/Ctrl+V=Kopyala/Yapıştır")
 
-    # advanced_code_editor.py
-# Python 3, Tkinter tabanlı gelişmiş kod editörü (parametresiz open_code_editor()).
-# Tek dosyaya yapıştırıp çalıştırabilirsiniz.
-
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
-import os, sys, tempfile, threading, subprocess, re, keyword, time
-
-PY_KEYWORDS = set(keyword.kwlist)
-
-class CodeTab:
-    def __init__(self, parent_notebook, title="Untitled", content="", filepath=None):
-        self.notebook = parent_notebook
-        self.frame = ttk.Frame(parent_notebook)
-        self.filepath = filepath
-        self._saved = True if filepath else False
-        # Panes: editor (with line numbers) and output console below
-        self.pw = ttk.PanedWindow(self.frame, orient=tk.VERTICAL)
-        self.pw.pack(fill=tk.BOTH, expand=True)
-
-        top_frame = ttk.Frame(self.pw)
-        bottom_frame = ttk.Frame(self.pw, height=120)
-
-        # Line numbers canvas
-        ln_frame = ttk.Frame(top_frame)
-        ln_frame.pack(side=tk.LEFT, fill=tk.Y)
-        self.ln_canvas = tk.Text(ln_frame, width=4, padx=4, takefocus=0, borderwidth=0, state="disabled")
-        self.ln_canvas.pack(fill=tk.Y, expand=False)
-
-        # Main text widget
-        text_frame = ttk.Frame(top_frame)
-        text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.text = tk.Text(text_frame, wrap="none", undo=True)
-        self.text.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-
-        # Scrollbars
-        vsb = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self._on_vscroll)
-        hsb = ttk.Scrollbar(self.frame, orient=tk.HORIZONTAL, command=self.text.xview)
-        self.text.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        hsb.pack(fill=tk.X)
-
-        # Output console
-        self.output = tk.Text(bottom_frame, height=8, state="disabled", wrap="word")
-        self.output.pack(fill=tk.BOTH, expand=True)
-
-        self.pw.add(top_frame, weight=3)
-        self.pw.add(bottom_frame, weight=1)
-
-        # insert initial content
-        self.text.insert("1.0", content)
-        self._init_tags()
-        self._bind_events()
-        self.update_line_numbers()
-        self._schedule_highlight()
-
-        parent_notebook.add(self.frame, text=title)
-        self._update_tab_title()
-
-    def _on_vscroll(self, *args):
-        self.text.yview(*args)
-        self.ln_canvas.yview(*args)
-
-
-def _init_tags(self):
-    default_font = tkfont.Font(family="Courier", size=10)
-    alic_font = tkfont.Font(family="Courier", size=10, slant="italic")
-
-    self.text.tag_configure("keyword", foreground="#0077aa", font=default_font)
-    self.text.tag_configure("string", foreground="#a02020", font=default_font)
-    self.text.tag_configure("comment", foreground="#008000", font=italic_font)
-    self.text.tag_configure("number", foreground="#aa00aa", font=default_font)
-    self.text.tag_configure("defclass", foreground="#0033aa", underline=True, font=default_font)
-    self.text.tag_configure("matching", background="#ffff80")
-
-    self.output.tag_configure("stderr", foreground="#a00000")
-    self.output.tag_configure("stdout", foreground="#000000")
-
-
-    def _bind_events(self):
-        self.text.bind("<<Modified>>", self._on_modified)
-        self.text.bind("<KeyRelease>", self._on_key_release)
-        self.text.bind("<Return>", self._on_return, add=True)
-        self.text.bind("<Tab>", self._on_tab, add=True)
-        self.text.bind("<Control-space>", self._autocomplete)
-        self.text.bind("<Button-1>", lambda e: self._clear_bracket_highlight())
-        self.text.bind("<KeyRelease-bracket>", lambda e: None)  # placeholder
-
-    def _on_modified(self, event=None):
-        self.text.edit_modified(False)
-        self._saved = False
-        self._update_tab_title()
-        self.update_line_numbers()
-
-    def _update_tab_title(self):
-        idx = self.notebook.index(self.frame)
-        title = os.path.basename(self.filepath) if self.filepath else "Untitled"
-        if not self._saved:
-            title = "*" + title
-        self.notebook.tab(self.frame, text=title)
-
-    def update_line_numbers(self):
-        lines = int(self.text.index("end-1c").split(".")[0])
-        ln_text = "\n".join(str(i) for i in range(1, lines+1))
-        self.ln_canvas.config(state="normal")
-        self.ln_canvas.delete("1.0", "end")
-        self.ln_canvas.insert("1.0", ln_text)
-        self.ln_canvas.config(state="disabled")
-
-    # Simple syntax highlight for Python
-    HIGHLIGHT_RE = [
-        ("comment", re.compile(r"#.*")),
-        ("string", re.compile(r'(\'\'\'[\s\S]*?\'\'\'|"""[\s\S]*?"""|\'[^\']*\'|"[^"]*")')),
-        ("number", re.compile(r"\b\d+(\.\d+)?\b")),
-        ("defclass", re.compile(r"\b(class|def)\s+([A-Za-z_][A-Za-z0-9_]*)")),
-    ]
-
-    def _schedule_highlight(self, delay=250):
-        if hasattr(self, "_hl_job"):
-            try:
-                self.text.after_cancel(self._hl_job)
-            except:
-                pass
-        self._hl_job = self.text.after(delay, self._highlight)
-
-    def _on_key_release(self, event=None):
-        self.update_line_numbers()
-        # only schedule heavy highlight occasionally
-        self._schedule_highlight()
-        self._update_status()
-
-    def _highlight(self):
-        # Clear tags
-        start = "1.0"
-        end = "end-1c"
-        for tag in ["keyword", "string", "comment", "number", "defclass"]:
-            self.text.tag_remove(tag, start, end)
-
-        txt = self.text.get(start, end)
-        # keywords
-        for m in re.finditer(r"\b[A-Za-z_][A-Za-z0-9_]*\b", txt):
-            word = m.group(0)
-            if word in PY_KEYWORDS:
-                s = "1.0 + %d chars" % m.start()
-                e = "1.0 + %d chars" % m.end()
-                self.text.tag_add("keyword", s, e)
-
-        # other patterns
-        for tkname, cre in self.HIGHLIGHT_RE:
-            for m in cre.finditer(txt):
-                s = "1.0 + %d chars" % m.start()
-                e = "1.0 + %d chars" % m.end()
-                self.text.tag_add(tkname, s, e)
-
-        # def/class names
-        for m in re.finditer(r"\b(class|def)\s+([A-Za-z_][A-Za-z0-9_]*)", txt):
-            name = m.group(2)
-            s = "1.0 + %d chars" % m.start(2)
-            e = "1.0 + %d chars" % m.end(2)
-            self.text.tag_add("defclass", s, e)
-
-    def _on_return(self, event=None):
-        # auto-indent
-        idx = self.text.index("insert")
-        line = self.text.get(idx + " linestart", idx + " lineend")
-        indent = re.match(r"\s*", line).group(0)
-        # if previous char is ":" add extra indent
-        prev_line = self.text.get(idx + " -1line linestart", idx + " -1line lineend")
-        if prev_line.strip().endswith(":"):
-            indent += "    "
-        self.text.insert("insert", "\n" + indent)
-        return "break"
-
-    def _on_tab(self, event=None):
-        self.text.insert("insert", "    ")
-        return "break"
-
-    def _autocomplete(self, event=None):
-        # very small autocomplete: show keywords starting with current token
-        idx = self.text.index("insert")
-        token = re.findall(r"[A-Za-z_][A-Za-z0-9_]*$", self.text.get("1.0", idx))
-        token = token[0] if token else ""
-        if not token:
-            return
-        matches = [k for k in sorted(PY_KEYWORDS) if k.startswith(token)]
-        if not matches:
-            return
-        x, y, _, _ = self.text.bbox("insert")
-        # basic popup menu
-        menu = tk.Menu(self.text, tearoff=0)
-        for m in matches[:20]:
-            menu.add_command(label=m, command=lambda mm=m: self._insert_completion(token, mm))
-        try:
-            menu.tk_popup(self.text.winfo_rootx()+x, self.text.winfo_rooty()+y+20)
-        finally:
-            menu.grab_release()
-
-    def _insert_completion(self, token, completion):
-        # replace token before cursor
-        idx = self.text.index("insert")
-        start = "%s - %dc" % (idx, len(token))
-        self.text.delete(start, idx)
-        self.text.insert(start, completion)
-
-    def _clear_bracket_highlight(self):
-        self.text.tag_remove("matching", "1.0", "end")
-
-    def highlight_matching_bracket(self):
-        # simple matching for (), [], {}
-        pos = self.text.index("insert")
-        char = self.text.get(pos + " -1c")
-        pairs = {"(":")", "[":"]", "{":"}", ")":"(", "]":"[", "}":"{"}
-        if char in pairs:
-            match = pairs[char]
-            # forward or backward search
-            direction = "forward" if char in "([{" else "backward"
-            count = 0
-            i = self.text.index("insert")
-            text = self.text.get("1.0", "end-1c")
-            abs_index = self._index_to_abs(i)
-            step = 1 if direction=="forward" else -1
-            for j in range(abs_index, len(text) if step==1 else -1, step):
-                c = text[j]
-                if c == char:
-                    count += 1
-                elif c == match:
-                    count -= 1
-                    if count == 0:
-                        # highlight both
-                        a = "1.0 + %d chars" % (j if step==1 else abs_index-1)
-                        b = "1.0 + %d chars" % (j+1 if step==1 else abs_index)
-                        self.text.tag_add("matching", "insert -1c", "insert")
-                        self.text.tag_add("matching", a, b)
-                        break
-
-    def _index_to_abs(self, index):
-        # convert "line.col" to absolute char index
-        l, c = map(int, str(index).split("."))
-        lines = self.text.get("1.0", "%d.0" % (l-1))
-        return len(lines) + c
-
-    def get_content(self):
-        return self.text.get("1.0", "end-1c")
-
-    def save(self, path=None):
-        if path is None and self.filepath is None:
-            return self.save_as()
-        target = path or self.filepath
-        try:
-            with open(target, "w", encoding="utf-8") as f:
-                f.write(self.get_content())
-            self.filepath = target
-            self._saved = True
-            self._update_tab_title()
-            return True
-        except Exception as e:
-            messagebox.showerror("Kaydetme hatası", str(e))
-            return False
-
-    def save_as(self):
-        path = filedialog.asksaveasfilename(defaultextension=".py",
-                                            filetypes=[("Python","*.py"),("All","*.*")])
-        if path:
-            return self.save(path)
-        return False
-
-    def open_file(self, path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                txt = f.read()
-            self.text.delete("1.0", "end")
-            self.text.insert("1.0", txt)
-            self.filepath = path
-            self._saved = True
-            self._update_tab_title()
-            self._schedule_highlight(1)
-            return True
-        except Exception as e:
-            messagebox.showerror("Açma hatası", str(e))
-            return False
-
-    def run(self, show_output_callback=None):
-        # save temp file if unsaved
-        if self.filepath:
-            run_path = self.filepath
-        else:
-            fd, fp = tempfile.mkstemp(suffix=".py", text=True)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(self.get_content())
-            run_path = fp
-
-        def target():
-            cmd = [sys.executable, run_path]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            out, err = proc.communicate()
-            if show_output_callback:
-                show_output_callback(out, err)
-            # if temp file created, remove it
-            if not self.filepath:
-                try:
-                    os.remove(run_path)
-                except:
-                    pass
-        t = threading.Thread(target=target, daemon=True)
-        t.start()
-
-class CodeEditor:
-    def __init__(self, root):
-        self.root = root
-        self.top = tk.Toplevel(root)
-        self.top.title("Gelişmiş Kod Editörü")
-        self.top.geometry("1000x700")
-        self.notebook = ttk.Notebook(self.top)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-        self._tabs = []
-
-        # menu and toolbar
-        self._create_menu()
-        self._create_toolbar()
-        self._create_statusbar()
-
-        # start with one tab
-        self.new_tab()
-
-        # bind shortcuts on Toplevel
-        self.top.bind_all("<Control-n>", lambda e: self.new_tab())
-        self.top.bind_all("<Control-o>", lambda e: self.open_file())
-        self.top.bind_all("<Control-s>", lambda e: self.save_current())
-        self.top.bind_all("<Control-S>", lambda e: self.save_current_as())
-        self.top.bind_all("<Control-f>", lambda e: self.find_text())
-        self.top.bind_all("<F5>", lambda e: self.run_current())
-
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-        self._update_title()
-
-    def _create_menu(self):
-        menubar = tk.Menu(self.top)
-        filem = tk.Menu(menubar, tearoff=0)
-        filem.add_command(label="Yeni (Ctrl+N)", command=self.new_tab)
-        filem.add_command(label="Aç (Ctrl+O)", command=self.open_file)
-        filem.add_separator()
-        filem.add_command(label="Kaydet (Ctrl+S)", command=self.save_current)
-        filem.add_command(label="Farklı Kaydet (Ctrl+Shift+S)", command=self.save_current_as)
-        filem.add_separator()
-        filem.add_command(label="Kapat", command=self.top.destroy)
-        menubar.add_cascade(label="Dosya", menu=filem)
-
-        runm = tk.Menu(menubar, tearoff=0)
-        runm.add_command(label="Çalıştır (F5)", command=self.run_current)
-        menubar.add_cascade(label="Çalıştır", menu=runm)
-
-        editm = tk.Menu(menubar, tearoff=0)
-        editm.add_command(label="Geri Al", command=self._do_undo)
-        editm.add_command(label="İleri Al", command=self._do_redo)
-        editm.add_command(label="Bul (Ctrl+F)", command=self.find_text)
-        menubar.add_cascade(label="Düzen", menu=editm)
-
-        self.top.config(menu=menubar)
-
-    def _create_toolbar(self):
-        toolbar = ttk.Frame(self.top)
-        toolbar.pack(fill=tk.X)
-        ttk.Button(toolbar, text="Yeni", command=self.new_tab).pack(side=tk.LEFT, padx=2, pady=2)
-        ttk.Button(toolbar, text="Aç", command=self.open_file).pack(side=tk.LEFT, padx=2, pady=2)
-        ttk.Button(toolbar, text="Kaydet", command=self.save_current).pack(side=tk.LEFT, padx=2, pady=2)
-        ttk.Button(toolbar, text="Çalıştır", command=self.run_current).pack(side=tk.LEFT, padx=2, pady=2)
-
-    def _create_statusbar(self):
-        self.status = ttk.Label(self.top, text="Line 1, Col 0")
-        self.status.pack(side=tk.BOTTOM, fill=tk.X)
-
-    def _update_status(self, msg=None):
-        tab = self.current_tab()
-        if not tab:
-            return
-        idx = tab.text.index("insert").split(".")
-        ln, col = idx[0], idx[1]
-        fname = os.path.basename(tab.filepath) if tab.filepath else "Untitled"
-        self.status.config(text=f"{fname} — Satır {ln}, Kolon {col}" if not msg else msg)
-
-    def _update_title(self):
-        self.top.title("Gelişmiş Kod Editörü")
-
-    def _on_tab_changed(self, event=None):
-        self._update_status()
-
-    def current_tab(self):
-        if not self.notebook.tabs():
-            return None
-        frame = self.notebook.nametowidget(self.notebook.select())
-        for t in self._tabs:
-            if t.frame == frame:
-                return t
-        return None
-
-    def new_tab(self, content="", filepath=None):
-        title = os.path.basename(filepath) if filepath else "Untitled"
-        tab = CodeTab(self.notebook, title=title, content=content, filepath=filepath)
-        self._tabs.append(tab)
-        self.notebook.select(tab.frame)
-        tab.text.focus_set()
-        tab.text.bind("<KeyRelease>", lambda e: self._update_status())
-        return tab
-
-    def open_file(self):
-        path = filedialog.askopenfilename(filetypes=[("Python", "*.py"), ("All", "*.*")])
-        if not path:
-            return
-        # open in new tab
-        t = self.new_tab()
-        t.open_file(path)
-
-    def save_current(self):
-        tab = self.current_tab()
-        if not tab:
-            return
-        if not tab.filepath:
-            return tab.save_as()
-        return tab.save()
-
-    def save_current_as(self):
-        tab = self.current_tab()
-        if not tab:
-            return
-        return tab.save_as()
-
-    def _do_undo(self):
-        tab = self.current_tab()
-        try:
-            tab.text.edit_undo()
-        except:
-            pass
-
-    def _do_redo(self):
-        tab = self.current_tab()
-        try:
-            tab.text.edit_redo()
-        except:
-            pass
-
-    def find_text(self):
-        tab = self.current_tab()
-        if not tab:
-            return
-        pattern = simpledialog.askstring("Bul", "Aranacak metin:")
-        if not pattern:
-            return
-        tab.text.tag_remove("search", "1.0", "end")
-        idx = "1.0"
-        found = False
-        while True:
-            idx = tab.text.search(pattern, idx, nocase=True, stopindex="end")
-            if not idx:
-                break
-            end = f"{idx}+{len(pattern)}c"
-            tab.text.tag_add("search", idx, end)
-            idx = end
-            found = True
-        tab.text.tag_config("search", background="#ffff00")
-        if not found:
-            messagebox.showinfo("Bulunamadı", f"'{pattern}' bulunamadı.")
-
-    def run_current(self):
-        tab = self.current_tab()
-        if not tab:
-            return
-        # clear output
-        tab.output.config(state="normal")
-        tab.output.delete("1.0", "end")
-        tab.output.config(state="disabled")
-
-        def show_output(out, err):
-            tab.output.config(state="normal")
-            if out:
-                tab.output.insert("end", out, "stdout")
-            if err:
-                tab.output.insert("end", err, "stderr")
-            tab.output.config(state="disabled")
-
-        tab.run(show_output_callback=show_output)
-
-def open_code_editor():
-    """Parametresiz fonksiyon: yeni Toplevel'de gelişmiş kod editörü açar."""
+from tkinter import ttk, filedialog, messagebox, font
+import keyword, builtins, re, os, sys
+
+_HIGHLIGHT_DELAY = 150
+_TAG_STYLES = {
+    'keyword': {'foreground': '#569CD6'},
+    'builtin': {'foreground': '#4EC9B0'},
+    'string': {'foreground': '#CE9178'},
+    'comment': {'foreground': '#6A9955', 'italic': True},
+    'number': {'foreground': '#B5CEA8'},
+    'defname': {'foreground': '#DCDCAA', 'underline': True},
+    'decorator': {'foreground': '#C586C0'},
+    'classname': {'foreground': '#4EC9B0'},
+}
+
+_KEYWORDS = r"\\b(" + r"|".join(re.escape(k) for k in keyword.kwlist) + r")\\b"
+_BUILTINS = r"\\b(" + r"|".join(re.escape(n) for n in dir(builtins) if not n.startswith('_')) + r")\\b"
+_STRING = r"('''[\\s\\S]*?'''|\"\"\"[\\s\\S]*?\"\"\"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")"
+_COMMENT = r"#.*"
+_NUMBER = r"\\b(\\d+(?:\\.\\d+)?)\\b"
+_DEFNAME = r"\\bdef\\s+([A-Za-z_][A-Za-z0-9_]*)"
+_DECORATOR = r"@[_A-Za-z][_A-Za-z0-9\\.]*"
+_CLASSNAME = r"\\bclass\\s+([A-Za-z_][A-Za-z0-9_]*)"
+
+_kw_re = re.compile(_KEYWORDS, re.MULTILINE)
+_builtin_re = re.compile(_BUILTINS, re.MULTILINE)
+_string_re = re.compile(_STRING, re.MULTILINE)
+_comment_re = re.compile(_COMMENT, re.MULTILINE)
+_number_re = re.compile(_NUMBER, re.MULTILINE)
+_defname_re = re.compile(_DEFNAME, re.MULTILINE)
+_decorator_re = re.compile(_DECORATOR, re.MULTILINE)
+_classname_re = re.compile(_CLASSNAME, re.MULTILINE)
+
+def open_lightning_code():
     root = tk._default_root
     if root is None:
         root = tk.Tk()
         root.withdraw()
-    CodeEditor(root)
+
+    win = tk.Toplevel(root)
+    win.title('Lightning Code Editor')
+    win.geometry('1000x700')
+
+    toolbar = ttk.Frame(win)
+    toolbar.pack(side='top', fill='x')
+
+    output_frame = tk.Frame(win, height=150, bg='#1e1e1e')
+    output_frame.pack(side='bottom', fill='x')
+    output_text = tk.Text(output_frame, height=8, bg='#1e1e1e', fg='#d4d4d4', state='disabled')
+    output_text.pack(fill='both', expand=True)
+
+    editor_frame = tk.Frame(win)
+    editor_frame.pack(fill='both', expand=True)
+
+    v_scroll = tk.Scrollbar(editor_frame)
+    v_scroll.pack(side='right', fill='y')
+    h_scroll = tk.Scrollbar(win, orient='horizontal')
+    h_scroll.pack(side='bottom', fill='x')
+
+    editor = tk.Text(editor_frame, wrap='none', undo=True, yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set, bg='#1e1e1e', fg='#d4d4d4', insertbackground='white')
+    editor.pack(fill='both', expand=True)
+
+    v_scroll.config(command=editor.yview)
+    h_scroll.config(command=editor.xview)
+
+    txt_font = font.Font(family='Consolas' if 'Consolas' in font.families() else 'Courier', size=11)
+    editor.configure(font=txt_font)
+
+    for tag, opts in _TAG_STYLES.items():
+        cfg = {}
+        if 'foreground' in opts: cfg['foreground'] = opts['foreground']
+        if opts.get('italic'): cfg['font'] = font.Font(txt_font, slant='italic')
+        if opts.get('underline'): cfg['underline'] = 1
+        editor.tag_configure(tag, **cfg)
+
+    editor._filename = None
+    editor._highlight_after_id = None
+
+    def _clear_tags():
+        for tag in _TAG_STYLES.keys(): editor.tag_remove(tag, '1.0', 'end')
+
+    def _highlight_all():
+        _clear_tags()
+        text = editor.get('1.0', 'end-1c')
+        for m in _string_re.finditer(text): editor.tag_add('string', f'1.0+{m.start(1)}c', f'1.0+{m.end(1)}c')
+        for m in _comment_re.finditer(text): editor.tag_add('comment', f'1.0+{m.start()}c', f'1.0+{m.end()}c')
+        for m in _decorator_re.finditer(text): editor.tag_add('decorator', f'1.0+{m.start()}c', f'1.0+{m.end()}c')
+        for m in _classname_re.finditer(text): s,e=m.start(1),m.end(1); editor.tag_add('classname', f'1.0+{s}c', f'1.0+{e}c')
+        for m in _defname_re.finditer(text): s,e=m.start(1),m.end(1); editor.tag_add('defname', f'1.0+{s}c', f'1.0+{e}c')
+        for m in _kw_re.finditer(text): editor.tag_add('keyword', f'1.0+{m.start()}c', f'1.0+{m.end()}c')
+        for m in _builtin_re.finditer(text): editor.tag_add('builtin', f'1.0+{m.start()}c', f'1.0+{m.end()}c')
+        for m in _number_re.finditer(text): editor.tag_add('number', f'1.0+{m.start()}c', f'1.0+{m.end()}c')
+
+    def _schedule_highlight(event=None):
+        if editor._highlight_after_id: editor.after_cancel(editor._highlight_after_id)
+        editor._highlight_after_id = editor.after(_HIGHLIGHT_DELAY, _highlight_all)
+
+    editor.bind('<<Modified>>', lambda e: (editor.edit_modified(False), _schedule_highlight()))
+
+    def _maybe_save():
+        if editor.edit_modified():
+            r = messagebox.askyesnocancel('Save', 'Save changes?')
+            if r is None: return False
+            if r: _save_file()
+        return True
+
+    def _new_file():
+        if _maybe_save(): editor.delete('1.0','end'); editor._filename=None; win.title('Lightning Code Editor - Untitled')
+
+    def _open_file():
+        if not _maybe_save(): return
+        f = filedialog.askopenfilename(filetypes=[('Python', '*.py'), ('All', '*.*')])
+        if f: editor.delete('1.0','end'); editor.insert('1.0', open(f,'r',encoding='utf-8').read()); editor._filename=f; win.title(f'Lightning Code Editor - {os.path.basename(f)}')
+
+    def _save_file():
+        if editor._filename is None: _save_as_file(); return
+        with open(editor._filename,'w',encoding='utf-8') as fh: fh.write(editor.get('1.0','end-1c'))
+        editor.edit_modified(False)
+
+    def _save_as_file():
+        f = filedialog.asksaveasfilename(defaultextension='.py');
+        if f: editor._filename=f; _save_file()
+
+    def _run_code():
+        code = editor.get('1.0','end-1c')
+        output_text.config(state='normal'); output_text.delete('1.0','end')
+        try: exec(code, {})
+        except Exception as e: output_text.insert('1.0', str(e))
+        output_text.config(state='disabled')
+
+    ttk.Button(toolbar, text='New', command=_new_file).pack(side='left')
+    ttk.Button(toolbar, text='Open', command=_open_file).pack(side='left')
+    ttk.Button(toolbar, text='Save', command=_save_file).pack(side='left')
+    ttk.Button(toolbar, text='Run', command=_run_code).pack(side='left')
+
+    win.bind_all('<Control-s>', lambda e: (_save_file(), 'break'))
+    win.bind_all('<Control-o>', lambda e: (_open_file(), 'break'))
+    win.bind_all('<Control-n>', lambda e: (_new_file(), 'break'))
+    win.bind_all('<Control-r>', lambda e: (_run_code(), 'break'))
+
+    editor.focus_set()
 
     # ----------------- GELİŞTİRMELER (AŞAĞIYA EKLENDİ) -----------------
     # Not: Orijinal fonksiyondaki satırlar hiç çıkarılmadı, sadece sonuna
@@ -7383,20 +7095,36 @@ def open_trash():
         lb.delete(0, END)
     Button(win, text="Geri Yükle", command=restore).pack()
     Button(win, text="Çöp Kutusunu Boşalt", command=empty_trash).pack()
-
-# ---------- Güncelleme Merkezi ----------
 #!/usr/bin/env python3
-# update_center_toplevel_simple.py
-# open_update_center() ile çalışan Toplevel tabanlı Güncelleme Merkezi (root parametresi yok).
-# Kullanım: uygulamanın herhangi bir yerinden sadece `open_update_center()` çağır.
-# NOT: Bu fonksiyon mevcut bir tk.Tk() örneği (default root) arar.
-# Bulamazsa hata verir.
+# update_center_toplevel_simple_with_github.py
+# Güncelleme Merkezi (Toplevel) — GitHub raw file çekip hedef dosyaya gömebilir.
+# Kullanım: uygulamanda bir tk.Tk() varsa sadece `open_update_center()` çağır.
 
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
+import queue
+import time
+import random
+import functools
+import urllib.request
+import urllib.error
+import hashlib
+import os
+import datetime
+
+# ---------- Ayarlar (değiştirebilirsin) ----------
+# RAW URL (örnek: Xaef-BTL/BTL-OS-Update repo'sundaki update.py)
+UPDATE_RAW_URL = "https://raw.githubusercontent.com/Xaef-BTL/BTL-OS-Update/main/update.py"
+# Hedef dosya (BTLv4.4Ultra.py içine yazacak)
+TARGET_FILE = "BTLv4.4Ultra.py"
+# Dosya içine bakılacak marker'lar (aynı olsun)
+MARKER_START = "# === UPDATE_MODULE_START ==="
+MARKER_END = "# === UPDATE_MODULE_END ==="
+# ------------------------------------------------
 
 class UpdateCenter(tk.Toplevel):
     def __init__(self, master=None, title="Güncelleme Merkezi"):
-        # master opsiyonel: biz open_update_center() içinde default root'u
-        # vereceğiz.
         super().__init__(master)
         self.title(title)
         self.resizable(False, False)
@@ -7426,7 +7154,7 @@ class UpdateCenter(tk.Toplevel):
         self.check_btn.grid(row=0, column=0, padx=4)
 
         self.download_selected_btn = ttk.Button(
-            top, text="İndir / Yükle Seçileni", command=self.download_selected)
+            top, text="İndir / Uygula Seçileni", command=self.download_selected)
         self.download_selected_btn.grid(row=0, column=1, padx=4)
 
         self.download_all_btn = ttk.Button(
@@ -7452,9 +7180,9 @@ class UpdateCenter(tk.Toplevel):
         self.tree.heading("version", text="Versiyon")
         self.tree.heading("size", text="Boyut")
         self.tree.heading("status", text="Durum")
-        self.tree.column("version", width=80, anchor="center")
-        self.tree.column("size", width=80, anchor="center")
-        self.tree.column("status", width=120, anchor="center")
+        self.tree.column("version", width=120, anchor="center")
+        self.tree.column("size", width=100, anchor="center")
+        self.tree.column("status", width=140, anchor="center")
         self.tree.grid(row=0, column=0, sticky="nsew")
 
         sb = ttk.Scrollbar(
@@ -7465,7 +7193,7 @@ class UpdateCenter(tk.Toplevel):
         sb.grid(row=0, column=1, sticky="ns")
 
         # Progress alanı (her indirme için ayrı progressbar)
-        prog_label = ttk.Label(self, text="İndirme Durumları:")
+        prog_label = ttk.Label(self, text="İndirme / Uygulama Durumları:")
         prog_label.grid(row=2, column=0, sticky="w", padx=pad, pady=(6, 0))
 
         self.prog_container = ttk.Frame(self, padding=(pad, 0))
@@ -7474,19 +7202,18 @@ class UpdateCenter(tk.Toplevel):
         # Log
         log_label = ttk.Label(self, text="Günlük (log):")
         log_label.grid(row=4, column=0, sticky="w", padx=pad, pady=(6, 0))
-        self.log = tk.Text(self, height=8, width=60, state="disabled")
+        self.log = tk.Text(self, height=10, width=80, state="disabled")
         self.log.grid(row=5, column=0, padx=pad, pady=(0, pad))
 
         # Başlangıç: boş liste
-        self.updates = []  # dict: {id,name,version,size,status}
+        self.updates = []  # dict: {id,name,version,size,status, url(optional)}
         self._log(
             "Güncelleme Merkezi hazır. Kontrol etmek için 'Güncellemeleri Kontrol Et' tuşuna bas.")
 
     def _center_window(self):
         self.update_idletasks()
-        w = self.winfo_width() or 640
-        h = self.winfo_height() or 480
-        # mümkünse master üzerinden merkezle, yoksa ekran ortala
+        w = self.winfo_width() or 800
+        h = self.winfo_height() or 520
         try:
             master = self.master
             if master:
@@ -7503,34 +7230,55 @@ class UpdateCenter(tk.Toplevel):
             screen_h = self.winfo_screenheight()
             x = (screen_w - w) // 2
             y = (screen_h - h) // 2
-        self.geometry(f"+{x}+{y}")
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
-    # --- Simüle edilmiş "sunucu" kontrolü ---
+    # --- Gerçek GitHub kontrolü ve fallback simülasyon ---
     def check_updates(self):
         if self.processing:
             self._log(
-                "Zaten güncelleme kontrolü/indirme işlemi var, lütfen bekle.")
+                "Zaten işlem var, lütfen bekle.")
             return
         self.processing = True
         self.check_btn.config(state="disabled")
-        self._log("Güncellemeler kontrol ediliyor... (hayalî ağ bağlantısı)")
-        t = threading.Thread(target=self._simulate_check_updates, daemon=True)
+        self._log("Güncellemeler kontrol ediliyor... (GitHub kontrolü deneniyor)")
+        t = threading.Thread(target=self._check_updates_worker, daemon=True)
         t.start()
 
-    def _simulate_check_updates(self):
-        time.sleep(1.0 + random.random() * 1.5)
-        sample = []
-        for i in range(random.randint(2, 6)):
-            sample.append({
-                "id": f"pkg-{int(time.time()*1000)%100000 + i}",
-                "name": f"Paket-{random.choice(['A','B','C','X','Y','Z'])}{random.randint(1,99)}",
-                "version": f"{random.randint(1,3)}.{random.randint(0,9)}.{random.randint(0,20)}",
-                "size": f"{random.randint(1,100)} MB",
-                "status": "Bekliyor"
-            })
-        self.q.put(("updates_found", sample))
-        self.q.put(("info", "Güncellemeler bulundu. Listelendi."))
-        self.q.put(("done_check", None))
+    def _check_updates_worker(self):
+        # Deneyeceğiz: UPDATE_RAW_URL'i çek ve tek bir güncelleme objesi oluştur
+        try:
+            raw = fetch_remote_file(UPDATE_RAW_URL)
+            sha = hashlib.sha256(raw).hexdigest()[:12]
+            size_bytes = len(raw)
+            size_str = human_size(size_bytes)
+            pkg = {
+                "id": f"gh-{sha}",
+                "name": os.path.basename(UPDATE_RAW_URL) or "update.py",
+                "version": sha,
+                "size": size_str,
+                "status": "Bekliyor",
+                "url": UPDATE_RAW_URL,
+                "content_bytes": raw
+            }
+            self.q.put(("updates_found", [pkg]))
+            self.q.put(("info", "GitHub'dan güncelleme bulundu ve listelendi."))
+        except Exception as e:
+            # Fallback: simule et (eski davranış)
+            self.q.put(("info", f"GitHub kontrolü başarısız: {e}. Simülasyon başlatılıyor."))
+            time.sleep(0.6)
+            sample = []
+            for i in range(random.randint(2, 5)):
+                sample.append({
+                    "id": f"pkg-{int(time.time()*1000)%100000 + i}",
+                    "name": f"Paket-{random.choice(['A','B','C','X'])}{random.randint(1,99)}",
+                    "version": f"{random.randint(0,3)}.{random.randint(0,9)}.{random.randint(0,20)}",
+                    "size": f"{random.randint(1,100)} MB",
+                    "status": "Bekliyor"
+                })
+            self.q.put(("updates_found", sample))
+            self.q.put(("info", "Simüle edilmiş güncellemeler listelendi."))
+        finally:
+            self.q.put(("done_check", None))
 
     def populate_tree(self):
         for iid in self.tree.get_children():
@@ -7538,16 +7286,16 @@ class UpdateCenter(tk.Toplevel):
         for u in self.updates:
             self.tree.insert(
                 "", "end", iid=u["id"], values=(
-                    u["version"], u["size"], u["status"]))
+                    u.get("version", ""), u.get("size", ""), u.get("status", "")))
 
-    # --- İndirme kontrol ---
+    # --- İndirme / uygulama kontrol ---
     def download_selected(self):
         sel = self.tree.selection()
         if not sel:
             messagebox.showinfo(
-                "Seçilmedi", "İndirmek için önce bir paket seç.")
+                "Seçilmedi", "İndirmek / uygulamak için önce bir paket seç.")
             return
-        self._log(f"Seçilen {len(sel)} paket indirmeye hazırlanıyor...")
+        self._log(f"Seçilen {len(sel)} paket indirmeye/uygulamaya hazırlanıyor...")
         for sid in sel:
             self._start_download_for(sid)
 
@@ -7565,22 +7313,21 @@ class UpdateCenter(tk.Toplevel):
         cancel_event = threading.Event()
         self.download_cancel_events[pkg_id] = cancel_event
         t = threading.Thread(
-            target=self._download_worker, args=(
-                pkg_id, cancel_event), daemon=True)
+            target=self._download_worker, args=(pkg_id, cancel_event), daemon=True)
         self.download_threads[pkg_id] = t
         self._create_progress_widget(pkg_id)
         t.start()
-        self._log(f"{pkg_id} için indirme başlatıldı.")
+        self._log(f"{pkg_id} için indirme/uygulama başlatıldı.")
 
     def _create_progress_widget(self, pkg_id):
         if pkg_id in self.progress_widgets:
             return
         frame = ttk.Frame(self.prog_container)
-        lbl = ttk.Label(frame, text=pkg_id, width=20)
+        lbl = ttk.Label(frame, text=pkg_id, width=28)
         pb = ttk.Progressbar(
             frame,
             orient="horizontal",
-            length=300,
+            length=360,
             mode="determinate",
             maximum=100)
         status_lbl = ttk.Label(frame, text="0%")
@@ -7614,25 +7361,71 @@ class UpdateCenter(tk.Toplevel):
         self._log("Tüm indirmeler iptal edildi (istek gönderildi).")
 
     def _download_worker(self, pkg_id, cancel_event):
+        # Bul paket meta
+        pkg = next((x for x in self.updates if x["id"] == pkg_id), None)
+        if not pkg:
+            self.q.put(("log", f"{pkg_id}: Paket meta bulunamadı."))
+            self.q.put(("download_finished", pkg_id))
+            return
+
         self.q.put(("status_update", (pkg_id, "İndiriliyor")))
-        total_steps = random.randint(12, 30)
-        for i in range(total_steps + 1):
-            if cancel_event.is_set():
-                self.q.put(("status_update", (pkg_id, "İptal Edildi")))
-                self.q.put(("progress", (pkg_id, 0)))
-                self.q.put(("log", f"{pkg_id}: indirme iptal edildi."))
+
+        # Eğer paket zaten content_bytes içeriyorsa doğrudan kullan (GitHub check ile geldi)
+        content = pkg.get("content_bytes")
+        if content is None and pkg.get("url"):
+            # gerçek indirme (basit) — ilerleme simüle edilerek
+            try:
+                content = fetch_remote_file(pkg["url"], progress_callback=lambda p: self.q.put(("progress", (pkg_id, p))))
+            except Exception as e:
+                self.q.put(("log", f"{pkg_id}: indirme hatası: {e}"))
+                self.q.put(("status_update", (pkg_id, "Hata")))
                 self.q.put(("download_finished", pkg_id))
                 return
-            pct = int((i / total_steps) * 100)
-            self.q.put(("progress", (pkg_id, pct)))
-            time.sleep(0.08 + random.random() * 0.12)
+        else:
+            # Simüle edilmiş indirme (sadece ilerleme göstermek için)
+            total_steps = random.randint(12, 24)
+            for i in range(total_steps + 1):
+                if cancel_event.is_set():
+                    self.q.put(("status_update", (pkg_id, "İptal Edildi")))
+                    self.q.put(("progress", (pkg_id, 0)))
+                    self.q.put(("log", f"{pkg_id}: indirme iptal edildi."))
+                    self.q.put(("download_finished", pkg_id))
+                    return
+                pct = int((i / total_steps) * 100)
+                self.q.put(("progress", (pkg_id, pct)))
+                time.sleep(0.06 + random.random() * 0.12)
+
+        if cancel_event.is_set():
+            self.q.put(("status_update", (pkg_id, "İptal Edildi")))
+            self.q.put(("progress", (pkg_id, 0)))
+            self.q.put(("log", f"{pkg_id}: indirme iptal edildi."))
+            self.q.put(("download_finished", pkg_id))
+            return
+
         self.q.put(("progress", (pkg_id, 100)))
         self.q.put(("status_update", (pkg_id, "İndirildi")))
-        self.q.put(("log", f"{pkg_id}: indirildi. Kurulum başlıyor..."))
-        time.sleep(0.8 + random.random() * 1.2)
-        self.q.put(("status_update", (pkg_id, "Yüklendi")))
-        self.q.put(("log", f"{pkg_id}: başarıyla yüklendi."))
-        self.q.put(("download_finished", pkg_id))
+        self.q.put(("log", f"{pkg_id}: indirildi. Kurulum/uygulama başlıyor..."))
+
+        # Uygula: eğer paket bir update.py ise hedef dosyaya gömebiliriz
+        try:
+            applied = False
+            if pkg.get("name", "").lower().endswith(".py"):
+                applied = apply_update_to_target_file(content, TARGET_FILE)
+            else:
+                # diğer paket türleri için burada farklı uygulama yapılabilir
+                applied = False
+
+            if applied:
+                self.q.put(("status_update", (pkg_id, "Yüklendi")))
+                self.q.put(("log", f"{pkg_id}: başarıyla yüklendi. Dosyayı yeniden başlatın."))
+            else:
+                self.q.put(("status_update", (pkg_id, "Tamam - Uygulanmadı")))
+                self.q.put(("log", f"{pkg_id}: indirildi fakat otomatik uygulama yapılmadı."))
+        except Exception as e:
+            self.q.put(("status_update", (pkg_id, "Hata")))
+            self.q.put(("log", f"{pkg_id}: uygulama hatası: {e}"))
+        finally:
+            self.q.put(("download_finished", pkg_id))
 
     # --- Kuyruk işleme (ana thread'te çalışır) ---
     def _process_queue(self):
@@ -7644,7 +7437,7 @@ class UpdateCenter(tk.Toplevel):
                 if typ == "updates_found":
                     self.updates = data
                     for u in self.updates:
-                        u["status"] = "Bekliyor"
+                        u["status"] = u.get("status", "Bekliyor")
                     self.populate_tree()
                 elif typ == "info":
                     self._log(data)
@@ -7665,7 +7458,9 @@ class UpdateCenter(tk.Toplevel):
                         pw["status"].config(text="Tamam")
         except queue.Empty:
             pass
-        self.after(100, self._process_queue)
+        finally:
+            # check button'ı kontrolü (eğer check bitmişse yeniden aktif et)
+            self.after(100, self._process_queue)
 
     def _set_status(self, pkg_id, status):
         for u in self.updates:
@@ -7705,8 +7500,83 @@ class UpdateCenter(tk.Toplevel):
         self.destroy()
 
 # ------------------------------------------------
-# Tek fonksiyon: root parametresi yok (kullanıcının istediği şekilde).
+# Yardımcı fonksiyonlar
 
+def fetch_remote_file(url, progress_callback=None, timeout=15):
+    """
+    URL'den bytes olarak dosya çek. progress_callback(percent) çağırılabilir (opsiyonel).
+    Basit: stream okuma ve callback.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "BTL-UpdateCenter/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        total = resp.getheader("Content-Length")
+        if total:
+            total = int(total)
+        data = bytearray()
+        chunk_size = 8192
+        read = 0
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            data.extend(chunk)
+            read += len(chunk)
+            if total and progress_callback:
+                pct = int((read / total) * 100)
+                progress_callback(min(100, pct))
+        if progress_callback:
+            progress_callback(100)
+        return bytes(data)
+
+def human_size(n):
+    # basit boyut gösterimi
+    for unit in ['B','KB','MB','GB','TB']:
+        if n < 1024.0:
+            return f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} PB"
+
+def apply_update_to_target_file(content_bytes, target_path):
+    """
+    content_bytes (bytes) içeriğini target_path içine MARKER_START..MARKER_END arası yazar.
+    Eğer marker'lar yoksa dosyanın sonuna marker bloğu ekler.
+    Yedek alır: target_path.YYYYMMDD_HHMMSS.bak
+    Döner: True = uygulanmış, False = uygulanmamış/başarısız (hata fırlatılabilir).
+    """
+    # backup
+    if not os.path.exists(target_path):
+        # hedef yoksa yeni dosya oluştur (yedek yok)
+        orig_text = ""
+    else:
+        with open(target_path, "rb") as f:
+            orig_text = f.read().decode("utf-8", errors="replace")
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if os.path.exists(target_path):
+        bak_path = f"{target_path}.{timestamp}.bak"
+        with open(bak_path, "wb") as bf:
+            bf.write(orig_text.encode("utf-8"))
+    else:
+        bak_path = None
+
+    new_injected = content_bytes.decode("utf-8", errors="replace").strip()
+
+    if MARKER_START in orig_text and MARKER_END in orig_text:
+        before, rest = orig_text.split(MARKER_START, 1)
+        _, after = rest.split(MARKER_END, 1)
+        new_text = before + MARKER_START + "\n\n" + new_injected + "\n\n" + MARKER_END + after
+    else:
+        # marker yok, dosyanın sonuna ekle
+        new_text = orig_text + "\n\n" + MARKER_START + "\n\n" + new_injected + "\n\n" + MARKER_END + "\n"
+
+    # Yaz
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(new_text)
+
+    return True
+
+# ------------------------------------------------
+# Tek fonksiyon: root parametresi yok (kullanıcının istediği şekilde).
 
 def open_update_center():
     """
@@ -7715,12 +7585,11 @@ def open_update_center():
     """
     root = tk._default_root
     if not root:
-        # Nazik ama net: önce root oluşturmalısın.
         raise RuntimeError(
             "Mevcut bir tk.Tk() örneği bulunamadı. Önce `root = tk.Tk()` oluştur (ve mainloop çalıştır ya da GUI aktif olsun).")
     uc = UpdateCenter(root)
     try:
-        uc.grab_set()  # opsiyonel: modal davranış istersek açık kalsın
+        uc.grab_set()  # opsiyonel: modal davranış
     except Exception:
         pass
     return uc
@@ -7728,13 +7597,13 @@ def open_update_center():
 # -------------------------
 # Kısa kullanım örneği (yorum satırı):
 # import tkinter as tk
-# from update_center_toplevel_simple import open_update_center
+# from update_center_toplevel_simple_with_github import open_update_center
 # root = tk.Tk()
-# root.geometry("400x200")
+# root.geometry("600x300")
 # tk.Button(root, text="Open Update Center", command=open_update_center).pack(pady=20)
 # root.mainloop()
 #
-# Son. Artık sadece `open_update_center()` çağır yeterli.
+# Son.
 
 
 # ---------- BTL Store ----------
@@ -9470,111 +9339,75 @@ start_button.pack(side="left", padx=5)
 # ---------- Start menu (tanım, start_button referansı kullanınca start_bu
 
 
-def _safe_call(func, *args, **kwargs):
-    try:
-        return func(*args, **kwargs)
-    except Exception as e:
-        messagebox.showwarning(
-            "Fonksiyon yok",
-            f"{getattr(func, '__name__', str(func))} bulunamadı veya hata verdi:\n{e}")
-
-# Basit tooltip
-
-
-class _ToolTip:
-    def __init__(self, widget, text):
-        self.widget = widget
-        self.text = text
-        self.tip = None
-        widget.bind("<Enter>", self.show)
-        widget.bind("<Leave>", self.hide)
-
-    def show(self, _=None):
-        if self.tip:
-            return
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + 20
-        self.tip = Toplevel(self.widget)
-        self.tip.wm_overrideredirect(True)
-        self.tip.wm_geometry(f"+{x}+{y}")
-        Label(
-            self.tip,
-            text=self.text,
-            bg="black",
-            fg="white",
-            padx=6,
-            pady=2,
-            font=(
-                "Segoe UI",
-                8)).pack()
-
-    def hide(self, _=None):
-        if self.tip:
-            self.tip.destroy()
-            self.tip = None
-
-# Senin mevcut add_user_profile_to_canvas fonksiyonun varsa onu kullan,
-# yoksa basit bir fallback:
-
-
-def _default_add_user_profile_to_canvas(menu, canvas, width):
-    # Basit profil alanı
-    lbl = Label(
-        canvas,
-        text="Kullanıcı: Bilinmiyor",
-        bg="gray20",
-        fg="white",
-        font=(
-            "Segoe UI",
-            10,
-            "bold"))
-    canvas.create_window(20, 18, window=lbl, anchor='w')
-
-# Artırılmış open_start_menu
-
-
 def open_start_menu():
-    # global root ve start_button ile çalışır (varsa). Yoksa fallback pozisyon
-    # alır.
-    menu = Toplevel(root)
-    # Start menu gibi kısa ömürlü/arayüz pencerelerini görev çubuğunda
-    # göstermemek için işaretle
+    """
+    Geliştirilmiş open_start_menu() - parametresiz, global isimlere dayanır.
+    - Yeni uygulama oluşturmaz. Sadece Menü işlevselliğini geliştirir.
+    - Scrollbar + mousewheel uyumu, daha iyi arama/odak davranışı,
+      sağ-tık PIN/Gizle (durum kaydı), numara kısayolları, güvenli kapanış vb.
+    """
+    try:
+        import os, json, webbrowser, subprocess, time
+        from tkinter import Toplevel, Canvas, Frame, Label, Button, Entry, StringVar, Menu, messagebox, Scrollbar, VERTICAL, RIGHT, Y, LEFT, BOTH
+    except Exception:
+        return
+
+    # --- yardımcılar (küçük, dikkatli) ---
+    def _safe_call(fn, *a, **k):
+        try:
+            return fn(*a, **k)
+        except Exception:
+            try:
+                # sessizce geç
+                return None
+            except Exception:
+                return None
+
+    # resolve global root ve start_button
+    root_local = globals().get("root", None)
+    start_btn_local = globals().get("start_button", None)
+
+    menu = Toplevel(root_local) if root_local else Toplevel()
     try:
         menu.taskbar_exclude = True
     except Exception:
         pass
-    menu.overrideredirect(True)  # başlık çubuğu yok
+    menu.overrideredirect(True)
     menu.config(bg="gray10")
 
-    # dinamik ölçüler
     width = 420
     height = 480
 
-    # start button konumunu güvenli al
     try:
-        bx = start_button.winfo_rootx()
-        by = start_button.winfo_rooty()
-        bwidth = start_button.winfo_width()
-        bheight = start_button.winfo_height()
+        bx = start_btn_local.winfo_rootx()
+        by = start_btn_local.winfo_rooty()
+        bwidth = start_btn_local.winfo_width()
+        bheight = start_btn_local.winfo_height()
     except Exception:
-        # fallback: altta ortalanmış
-        bx, by, bwidth, bheight = 100, root.winfo_rooty() + root.winfo_height() - \
-            40, 50, 20
+        bx = 100
+        try:
+            by = root_local.winfo_rooty() + root_local.winfo_height() - 40
+        except Exception:
+            by = 200
+        bwidth = 50
+        bheight = 20
 
     x = bx + bwidth // 2 - width // 2
     y_final = by - height
     y_start = by
 
-    # gölge efekti için bir küçük offset ile alttan gölge
+    # shadow (isteğe bağlı)
     try:
-        # bazen window manager izin vermez; ignore hata
-        shadow = Toplevel(root)
+        shadow = Toplevel(root_local) if root_local else Toplevel()
         try:
             shadow.taskbar_exclude = True
         except Exception:
             pass
         shadow.overrideredirect(True)
-        shadow.attributes("-alpha", 0.2)
+        try:
+            shadow.attributes("-alpha", 0.18)
+        except Exception:
+            pass
         shadow.config(bg="black")
         shadow.geometry(f"{width+10}x{height+10}+{x-5}+{y_start+5}")
     except Exception:
@@ -9582,206 +9415,225 @@ def open_start_menu():
 
     menu.geometry(f"{width}x{height}+{x}+{y_start}")
 
-    canvas = Canvas(
-        menu,
-        width=width,
-        height=height,
-        bg="gray17",
-        highlightthickness=0)
+    # ana canvas (içine scrollable frame yerleştirilecek)
+    canvas = Canvas(menu, width=width, height=height, bg="gray17", highlightthickness=0)
     canvas.pack(fill="both", expand=True)
 
-    # başlık çubuğu (sürükleme + kapat)
+    # header
     header = Frame(menu, bg="gray12", height=42)
-    canvas.create_window(
-        0,
-        0,
-        window=header,
-        anchor='nw',
-        width=width,
-        height=42)
-    lbl_title = Label(
-        header,
-        text="Başlat — BTL",
-        bg="gray12",
-        fg="white",
-        font=(
-            "Segoe UI",
-            11,
-            "bold"))
+    canvas.create_window(0, 0, window=header, anchor='nw', width=width, height=42)
+    lbl_title = Label(header, text="Başlat — BTL", bg="gray12", fg="white", font=("Segoe UI", 11, "bold"))
     lbl_title.pack(side="left", padx=10)
-    # Kapama butonu
 
     def _close():
         if shadow:
-            shadow.destroy()
-        menu.destroy()
-    btn_close = Button(
-        header,
-        text="✕",
-        bg="gray12",
-        fg="white",
-        bd=0,
-        relief='flat',
-        command=_close,
-        cursor="hand2")
+            try:
+                shadow.destroy()
+            except Exception:
+                pass
+        try:
+            menu.destroy()
+        except Exception:
+            pass
+
+    btn_close = Button(header, text="✕", bg="gray12", fg="white", bd=0, relief='flat', command=_close, cursor="hand2")
     btn_close.pack(side="right", padx=8, pady=6)
-    _ToolTip(btn_close, "Kapat (Esc) — evet, basabilirsin")
+    try:
+        _ToolTip(btn_close, "Kapat (Esc)")
+    except Exception:
+        pass
 
-    # sürükleme
+    # sürükleme header
     _drag = {"x": 0, "y": 0}
-
     def drag_start(e):
-        _drag["x"] = e.x
-        _drag["y"] = e.y
-
+        _drag["x"], _drag["y"] = e.x, e.y
     def drag_move(e):
         nx = menu.winfo_x() + e.x - _drag["x"]
         ny = menu.winfo_y() + e.y - _drag["y"]
         menu.geometry(f"+{nx}+{ny}")
         if shadow:
-            shadow.geometry(f"+{nx-5}+{ny+5}")
+            try:
+                shadow.geometry(f"+{nx-5}+{ny+5}")
+            except Exception:
+                pass
     header.bind("<Button-1>", drag_start)
     header.bind("<B1-Motion>", drag_move)
 
-    # profil alanı (kullanıcının fonksiyonu varsa kullan)
+    # profil alanı (eğer kullanıcı kodu eklemişse kullan)
     try:
-        add_user_profile_to_canvas(menu, canvas, width)
+        if callable(globals().get("add_user_profile_to_canvas", None)):
+            globals()["add_user_profile_to_canvas"](menu, canvas, width)
+        else:
+            _default_add_user_profile_to_canvas(menu, canvas, width)
     except Exception:
-        _default_add_user_profile_to_canvas(menu, canvas, width)
+        try:
+            _default_add_user_profile_to_canvas(menu, canvas, width)
+        except Exception:
+            pass
 
-    # search alanı
+    # arama kutusu
     search_var = StringVar()
-    entry_search = Entry(
-        canvas,
-        textvariable=search_var,
-        bd=0,
-        font=(
-            "Segoe UI",
-            10))
-    entry_search_window = canvas.create_window(
-        width // 2, 68, window=entry_search, anchor='n', width=360)
+    entry_search = Entry(canvas, textvariable=search_var, bd=0, font=("Segoe UI", 10))
+    canvas.create_window(width // 2, 68, window=entry_search, anchor='n', width=360)
     entry_search.insert(0, "Ara... (yaz başlasın zaten)")
 
     def on_search_focus_in(e):
-        if entry_search.get().startswith("Ara"):
+        v = entry_search.get()
+        if v.startswith("Ara"):
             entry_search.delete(0, "end")
-
     def on_search_focus_out(e):
         if entry_search.get().strip() == "":
             entry_search.insert(0, "Ara... (yaz başlasın zaten)")
     entry_search.bind("<FocusIn>", on_search_focus_in)
     entry_search.bind("<FocusOut>", on_search_focus_out)
 
-    # buton listesini oluştur
+    # -- scrollable frame yapısı (Scrollbar + Canvas içinde frame)
+    scroll_canvas = Canvas(btn_frame := Frame(canvas, bg="gray17"), bg="gray17", highlightthickness=0)
+    vscroll = Scrollbar(btn_frame, orient=VERTICAL, command=scroll_canvas.yview)
+    scroll_canvas.configure(yscrollcommand=vscroll.set)
+    # place inside main canvas
+    canvas.create_window(width // 2, 110, window=btn_frame, anchor='n', width=380, height=height - 170)
+    vscroll.pack(side=RIGHT, fill=Y)
+    scroll_canvas.pack(side=LEFT, fill=BOTH, expand=True)
+    inner_frame = Frame(scroll_canvas, bg="gray17")
+    # inner_frame'ı canvas içine yerleştir
+    inner_id = scroll_canvas.create_window((0,0), window=inner_frame, anchor='nw')
+    def _update_inner_scrollregion(event=None):
+        try:
+            scroll_canvas.update_idletasks()
+            bbox = scroll_canvas.bbox(inner_id)
+            if bbox:
+                scroll_canvas.configure(scrollregion=bbox)
+        except Exception:
+            pass
+    inner_frame.bind("<Configure>", _update_inner_scrollregion)
+
+    # mousewheel binding: hem Windows/Mac (delta) hem X11 (Button-4/5)
+    def _on_mousewheel(event):
+        try:
+            if getattr(event, "delta", None):
+                delta = int(-1 * (event.delta / 120))
+                scroll_canvas.yview_scroll(delta, "units")
+            else:
+                if event.num == 4:
+                    scroll_canvas.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    scroll_canvas.yview_scroll(1, "units")
+        except Exception:
+            pass
+    try:
+        menu.bind_all("<MouseWheel>", _on_mousewheel)
+        menu.bind_all("<Button-4>", _on_mousewheel)
+        menu.bind_all("<Button-5>", _on_mousewheel)
+    except Exception:
+        pass
+
+    # orijinal uygulama listesi (hesap makinesi yok; orijinaller korunuyor)
     raw_buttons = [
-        ("📝 Not Defteri", lambda: _safe_call(open_notepad)),
-        ("🌐 BTL Tarayıcı", lambda: subprocess.Popen(["start", "https://www.google.com"], shell=True)),
-        ("🐍 Yılan Oyunu", lambda: _safe_call(open_snake_game)),
-        ("⚽ Top Yakalama", lambda: _safe_call(open_ball_game)),
-        ("🧩 Maria'yı Kurtar", lambda: _safe_call(open_maria_game)),
-        ("🧠 CMD Paneli", lambda: _safe_call(open_cmd_panel)),
-        ("👤 Kullanıcılar", lambda: messagebox.showinfo("Kullanıcılar", "\n".join(users) if 'users' in globals() else "Kullanıcı yok")),
-        ("🎨 Paint", lambda: _safe_call(open_paint_app)),
+        ("📝 Not Defteri", lambda: _safe_call(globals().get("open_notepad", lambda: messagebox.showinfo("Hata", "Notepad yok")))),
+        ("🌐 BTL Tarayıcı", lambda: _safe_call(lambda: webbrowser.open("https://www.google.com"))),
+        ("🐍 Yılan Oyunu", lambda: _safe_call(globals().get("open_snake_game", lambda: messagebox.showinfo("Hata", "Snake yok")))),
+        ("⚽ Top Yakalama", lambda: _safe_call(globals().get("open_ball_game", lambda: messagebox.showinfo("Hata", "Ball game yok")))),
+        ("🧩 Maria'yı Kurtar", lambda: _safe_call(globals().get("open_maria_game", lambda: messagebox.showinfo("Hata", "Maria yok")))),
+        ("🧠 CMD Paneli", lambda: _safe_call(globals().get("open_cmd_panel", lambda: messagebox.showinfo("Hata", "CMD yok")))),
+        ("👤 Kullanıcılar", lambda: messagebox.showinfo("Kullanıcılar", "\n".join(globals().get("users", [])) if globals().get("users") else "Kullanıcı yok")),
+        ("🎨 Paint", lambda: _safe_call(globals().get("open_paint_app", lambda: messagebox.showinfo("Hata", "Paint yok")))),
         ("ℹ️ Hakkında", lambda: messagebox.showinfo("BTL hakkında", "BTL4 - BTL version is 4, you use updated version - BTL25_4")),
-        ("🚪 Çıkış", lambda: _safe_call(shutdown_animation)),
-        ("⚙️ Yapılandırma", lambda: _safe_call(open_control_panel)),
-        ("📘 Kayıt Defteri", lambda: _safe_call(open_reg)),
-        ("♟️ BTL chess", lambda: _safe_call(open_chess_game)),
-        ("📟 Lightning Code", lambda: _safe_call(open_code_editor))
+        ("🚪 Çıkış", lambda: _safe_call(globals().get("shutdown_animation", lambda: messagebox.showinfo("Çıkış", "Shutdown yok")))),
+        ("⚙️ Yapılandırma", lambda: _safe_call(globals().get("open_control_panel", lambda: messagebox.showinfo("Hata", "Control Panel yok")))),
+        ("📘 Kayıt Defteri", lambda: _safe_call(globals().get("open_reg", lambda: messagebox.showinfo("Hata", "Regedit yok")))),
+        ("♟️ BTL chess", lambda: _safe_call(globals().get("open_chess_game", lambda: messagebox.showinfo("Hata", "Chess yok")))),
+        ("📟 Lightning Code", lambda: _safe_call(globals().get("open_lightning_code", lambda: messagebox.showinfo("Hata", "Code editor yok"))))
     ]
 
-    # frame içine butonlar (scrollable yapılabilir ama boyut yeterli)
-    btn_frame = Frame(canvas, bg="gray17")
-    canvas.create_window(
-        width // 2,
-        110,
-        window=btn_frame,
-        anchor='n',
-        width=380,
-        height=height - 170)
-
-    # saklanacak referanslar ve selection index
+    # buton widget'larını oluştur ve inner_frame içine koy
     btn_widgets = []
-
     def make_btn(text, cmd):
-        b = Button(
-            btn_frame,
-            text=text,
-            anchor='w',
-            width=36,
-            padx=10,
-            font=(
-                "Segoe UI",
-                10),
-            bd=0,
-            relief='flat',
-            bg="gray24",
-            fg="white",
-            cursor="hand2",
-            activebackground="gray36")
-        # hover efekt
-
-        def on_enter(e):
-            b.config(bg="gray35")
-
-        def on_leave(e):
-            b.config(bg="gray24")
+        b = Button(inner_frame, text=text, anchor='w', width=36, padx=10, font=("Segoe UI", 10),
+                   bd=0, relief='flat', bg="gray24", fg="white", cursor="hand2", activebackground="gray36")
+        def on_enter(e): b.config(bg="gray35")
+        def on_leave(e): b.config(bg="gray24")
         b.bind("<Enter>", on_enter)
         b.bind("<Leave>", on_leave)
-        b.config(command=lambda: (_safe_call(cmd), _close()))
+        b.config(command=lambda: (_safe_call(cmd), _enhanced_close()))
         return b
 
     for text, cmd in raw_buttons:
         b = make_btn(text, cmd)
         b.pack(fill='x', pady=6)
-        _ToolTip(b, text)
+        try:
+            _ToolTip(b, text)
+        except Exception:
+            pass
         btn_widgets.append((text.lower(), b))
 
-    # filtreleme
+    # ARAMA: gelişmiş davranış - kelime bazlı, ilk eşleşmeyi seç, Enter çalıştırır
     def filter_buttons(*_):
         q = search_var.get().strip().lower()
         if q == "" or q.startswith("ara"):
             q = ""
+        parts = q.split()
         for name, widget in btn_widgets:
-            if q in name:
+            visible = True
+            if parts:
+                for p in parts:
+                    if p not in name:
+                        visible = False
+                        break
+            if visible:
                 widget.pack_configure(fill='x', pady=6)
             else:
                 widget.pack_forget()
-    search_var.trace_add("write", filter_buttons)
-
-    # klavye gezinmesi: index ile hareket
-    selection = {"idx": 0}
-
-    def _ensure_visible(idx):
-        # tkinter'da auto scroll yok; ama butonlar pack edildiği için
-        # görünürlük pack_forget/pack ile sağlanıyor
+        # ilk eşleşmeyi seç
+        try:
+            visible_widgets = [w for nm, w in btn_widgets if str(w.winfo_manager()) != ""]
+            if visible_widgets:
+                select_index(0)
+                # scroll first visible into view
+                try:
+                    scroll_canvas.update_idletasks()
+                    y = visible_widgets[0].winfo_y()
+                    scroll_canvas.yview_moveto(max(0, y / max(1, scroll_canvas.bbox(inner_id)[3])))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    try:
+        search_var.trace_add("write", filter_buttons)
+    except Exception:
         pass
 
+    # klavye gezinmesi ve seçim
+    selection = {"idx": 0}
     def select_index(idx):
-        # önce hepsini normal yap
-        for i, (_, w) in enumerate(btn_widgets):
-            w.config(relief='flat')
-        # seçiliyi vurgula (sadece görünürler içinde)
-        visible = [
-            w for name,
-            w in btn_widgets if str(
-                w.winfo_manager()) != '']
+        visible = [w for nm, w in btn_widgets if str(w.winfo_manager()) != ""]
         if not visible:
             return
-        # clamp idx
         idx = max(0, min(idx, len(visible) - 1))
         selection['idx'] = idx
-        visible[idx].config(relief='ridge')
-        visible[idx].focus_set()
+        for _, w in btn_widgets:
+            try:
+                w.config(relief='flat')
+            except Exception:
+                pass
+        try:
+            visible[idx].config(relief='ridge')
+            visible[idx].focus_set()
+            # scroll into view
+            try:
+                scroll_canvas.update_idletasks()
+                wy = visible[idx].winfo_y()
+                h = scroll_canvas.winfo_height()
+                scroll_canvas.yview_moveto(max(0, (wy - 10) / max(1, scroll_canvas.bbox(inner_id)[3])))
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def on_key(e):
-        visible = [
-            w for name,
-            w in btn_widgets if str(
-                w.winfo_manager()) != '']
+        visible = [w for nm, w in btn_widgets if str(w.winfo_manager()) != ""]
         if e.keysym == "Down":
-            selection['idx'] = min(selection['idx'] + 1,
-                                   max(0, len(visible) - 1))
+            selection['idx'] = min(selection['idx'] + 1, max(0, len(visible) - 1))
             select_index(selection['idx'])
         elif e.keysym == "Up":
             selection['idx'] = max(selection['idx'] - 1, 0)
@@ -9790,161 +9642,119 @@ def open_start_menu():
             if visible:
                 visible[selection['idx']].invoke()
         elif e.keysym == "Escape":
-            _close()
-
-    menu.bind_all("<Key>", on_key)
-
-    # fareyle dışarı tıklamayı yakalama: focus çıktıysa 200ms sonra kapat
-    def on_focus_out(e):
-        # eğer iligli pencere menü değilse kapat
-        def check():
-            # eğer artık etkin pencere menu değilse kapat
-            if not menu.focus_displayof() and not menu.winfo_containing(
-                    menu.winfo_pointerx(), menu.winfo_pointery()):
-                _close()
-        menu.after(200, check)
-    menu.bind("<FocusOut>", on_focus_out)
-
-    # ilk seçim
-    menu.after(120, lambda: select_index(0))
-
-    # animasyon: yukarı doğru kayma, yumuşak
-    def animate(y):
-        nonlocal shadow
-        if y > y_final:
-            y -= 25
-            if y < y_final:
-                y = y_final
-            menu.geometry(f"{width}x{height}+{x}+{y}")
-            if shadow:
-                shadow.geometry(f"{width+10}x{height+10}+{x-5}+{y+5}")
-            menu.after(12, lambda: animate(y))
+            _enhanced_close()
         else:
-            menu.geometry(f"{width}x{height}+{x}+{y_final}")
-            if shadow:
-                shadow.geometry(f"{width+10}x{height+10}+{x-5}+{y_final+5}")
-    animate(y_start)
-
-    # fareyle sürükleme canvas içinden (esas taşıma header ile yapıldı ama
-    # ekstra opsiyon)
-    def move_menu(event):
-        nx = event.x_root - width // 2
-        ny = event.y_root - 20
-        menu.geometry(f"+{nx}+{ny}")
-        if shadow:
-            shadow.geometry(f"+{nx-5}+{ny+5}")
-    canvas.bind("<B1-Motion>", move_menu)
-
-    # focus ver
-    menu.focus_force()
-
-    # eğer menü gösterilir gösterilmez bir tuşa basılmışsa girdiye odaklansın
-    entry_search.focus_set()
-
-    # Eğer root yeniden boyutlanırsa menüyü kapat (kullanıcının masaüstünü
-    # bozma)
-    def on_root_config(e):
-        _close()
+            # harf basıldıysa aramaya odaklan
+            if len(e.keysym) == 1 and e.keysym.isprintable():
+                entry_search.focus_set()
     try:
-        root.bind("<Configure>", on_root_config)
+        menu.bind_all("<Key>", on_key)
     except Exception:
         pass
 
-    # ----------------- EKLENTİLER (orijinal satırlar korunmuştur) -----------------
-    # Aşağıdaki kod bloğu Orijinal fonksiyondaki hiçbir satırı silmez veya
-    # değiştirmez; sadece ekstra işlevler ekler.
-
+    # CONTEXT MENU: Özellikler, Başlata Sabitle (pin), Gizle
+    # pinned ve hidden durumlarını state dosyasında saklıyoruz
     try:
-        import json
-        import os
-        import webbrowser
+        state_file = os.path.join(os.path.expanduser("~"), ".btl_start_state.json")
     except Exception:
-        pass
+        state_file = "btl_start_state.json"
 
-    # 1) Fare tekerleği ile kaydırma (canvas içinde btn_frame olduğu için
-    # canvas'ı kaydırıyoruz)
-    def _update_scrollregion_later():
+    pinned = set()
+    hidden = set()
+    def _save_state():
         try:
-            menu.update_idletasks()
-            bbox = canvas.bbox("all")
-            if bbox:
-                canvas.configure(scrollregion=bbox)
+            s = {"pinned": list(pinned), "hidden": list(hidden), "selection": selection.get("idx", 0)}
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(s, f)
         except Exception:
             pass
 
-    # hemen bir kez ayarla, sonra periyodik güncelle
-    menu.after(80, _update_scrollregion_later)
-    menu.after(800, _update_scrollregion_later)
-
-    def _on_mousewheel(event):
-        # Windows / Mac / X11 uyumlu
+    def _load_state():
         try:
-            if event.delta:
-                # Windows / MacOS
-                delta = int(-1 * (event.delta / 120))
-                canvas.yview_scroll(delta, "units")
-            else:
-                # X11 (event.num 4/5)
-                if event.num == 4:
-                    canvas.yview_scroll(-1, "units")
-                elif event.num == 5:
-                    canvas.yview_scroll(1, "units")
+            if os.path.exists(state_file):
+                with open(state_file, "r", encoding="utf-8") as f:
+                    s = json.load(f)
+                for nm, w in btn_widgets:
+                    if nm in s.get("hidden", []):
+                        try:
+                            w.pack_forget()
+                        except Exception:
+                            pass
+                for p in s.get("pinned", []):
+                    pinned.add(p)
+                # apply pin order
+                if pinned:
+                    # move pinned widgets to top in order they appear in raw_buttons
+                    ordered = []
+                    for nm, w in btn_widgets:
+                        if nm in pinned:
+                            ordered.append((nm, w))
+                    # repack: first pinned, then others
+                    for nm, w in ordered:
+                        try:
+                            w.pack_forget()
+                            w.pack(fill='x', pady=6)
+                        except Exception:
+                            pass
+                idx = s.get("selection", 0)
+                menu.after(120, lambda: select_index(idx))
         except Exception:
             pass
 
-    # Bind hem menu hem de canvas üzerine
-    try:
-        menu.bind_all("<MouseWheel>", _on_mousewheel)      # Windows / Mac
-        menu.bind_all("<Button-4>", _on_mousewheel)        # X11 up
-        menu.bind_all("<Button-5>", _on_mousewheel)        # X11 down
-    except Exception:
-        pass
-
-    # 2) Butonlara sağ tık menüsü ekle (pin, özellik, gizle)
+    # oluştur context menu'yu widget başına bağla
     try:
         for name, widget in btn_widgets:
             try:
-                ctx_btn = tk.Menu(menu, tearoff=0)
+                ctx_btn = Menu(menu, tearoff=0)
             except Exception:
                 ctx_btn = Menu(menu, tearoff=0)
             btn_text = widget.cget("text")
-
             def _show_props(w=widget, t=btn_text):
                 try:
-                    messagebox.showinfo("Özellikler", f"Öğe: {t}\nWidget: {w}")
+                    messagebox.showinfo("Özellikler", f"Öğe: {t}")
                 except Exception:
                     pass
-
-            def _pin_to_start(w=widget, t=btn_text):
+            def _pin_to_start(w=widget, nm=name, t=btn_text):
                 try:
-                    # basit simülasyon: tooltip değiştir
-                    _ToolTip(w, f"Pinned: {t}")
-                    status.config(text=f"'{t}' Başlat'a sabitlendi (sadece simülasyon).")
+                    if nm in pinned:
+                        pinned.discard(nm)
+                        # görsel feedback
+                        _ToolTip(w, t)
+                    else:
+                        pinned.add(nm)
+                        _ToolTip(w, f"Pinned: {t}")
+                    # repack: pinnedleri öne al
+                    try:
+                        # remove and repack pinned in order of appearance in raw_buttons
+                        for p_nm, p_w in list(btn_widgets):
+                            if p_nm in pinned:
+                                p_w.pack_forget()
+                                p_w.pack(fill='x', pady=6)
+                    except Exception:
+                        pass
+                    _save_state()
                 except Exception:
                     pass
-
-            def _hide_button(w=widget, t=btn_text):
+            def _hide_button(w=widget, nm=name, t=btn_text):
                 try:
                     w.pack_forget()
-                    status.config(text=f"'{t}' gizlendi.")
+                    hidden.add(nm)
+                    _save_state()
                 except Exception:
                     pass
-
             ctx_btn.add_command(label="Özellikler", command=_show_props)
             ctx_btn.add_command(label="Başlata Sabitle", command=_pin_to_start)
             ctx_btn.add_command(label="Gizle", command=_hide_button)
-
-            def _popup(e, m=ctx_btn, w=widget):
+            def _popup(e, m=ctx_btn):
                 try:
                     m.tk_popup(e.x_root, e.y_root)
                 except Exception:
                     pass
-
             widget.bind("<Button-3>", _popup)
     except Exception:
         pass
 
-    # 3) Numara kısayolları (1-9) -> görünür ilk 9 öğeyi çalıştır
+    # numara kısayolları (1-9)
     def _press_number(ev):
         try:
             if ev.char and ev.char.isdigit():
@@ -9959,100 +9769,32 @@ def open_start_menu():
                     visible[idx].invoke()
         except Exception:
             pass
-
     try:
-        menu.bind_all("1", _press_number)
-        menu.bind_all("2", _press_number)
-        menu.bind_all("3", _press_number)
-        menu.bind_all("4", _press_number)
-        menu.bind_all("5", _press_number)
-        menu.bind_all("6", _press_number)
-        menu.bind_all("7", _press_number)
-        menu.bind_all("8", _press_number)
-        menu.bind_all("9", _press_number)
+        for ch in "123456789":
+            menu.bind_all(ch, _press_number)
     except Exception:
         pass
 
-    # 4) Arama kutusuna odaklandığında ilk eşleşmeyi seç ve Enter ile çalıştır
+    # arama Enter davranışı: ilk görünür öğeyi çalıştır
     def _search_enter(ev=None):
         try:
-            q = search_var.get().strip().lower()
-            # filtrele zaten çalışıyor; sadece enter'a basınca ilk görünürü çalıştır
             visible = [w for nm, w in btn_widgets if str(w.winfo_manager()) != ""]
             if visible:
                 visible[0].invoke()
         except Exception:
             pass
-
     try:
         entry_search.bind("<Return>", _search_enter)
     except Exception:
         pass
 
-    # 5) Güvenlik: raw subprocess açan butonun komutunu daha güvenli hale getir
-    try:
-        for i, (nm, w) in enumerate(btn_widgets):
-            try:
-                txt = w.cget("text").lower()
-                if "tarayıcı" in txt or "browser" in txt or "google" in txt:
-                    # override buton komut: webbrowser kullan
-                    def _open_old_browser(url="https://www.google.com"):
-                        try:
-                            webbrowser.open(url)
-                        except Exception:
-                            try:
-                                subprocess.Popen(["start", url], shell=True)
-                            except Exception:
-                                messagebox.showinfo("Hata", "Tarayıcı açılamadı.")
-                    w.config(command=lambda u="https://www.google.com": (_safe_call(lambda: webbrowser.open(u)), _close()))
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # 6) State persist (seçili index ve gizlenen öğeler) - basit, ev dizinine küçük bir dosya
-    try:
-        state_file = os.path.join(os.path.expanduser("~"), ".btl_start_state.json")
-    except Exception:
-        state_file = "btl_start_state.json"
-
-    def _save_state():
-        try:
-            visible = [w for nm, w in btn_widgets]
-            hidden = []
-            for nm, w in btn_widgets:
-                if str(w.winfo_manager()) == "":
-                    hidden.append(nm)
-            s = {"selection": selection.get("idx", 0), "hidden": hidden}
-            with open(state_file, "w", encoding="utf-8") as f:
-                json.dump(s, f)
-        except Exception:
-            pass
-
-    def _load_state():
-        try:
-            if os.path.exists(state_file):
-                with open(state_file, "r", encoding="utf-8") as f:
-                    s = json.load(f)
-                # gizlenenleri uygula
-                for nm, w in btn_widgets:
-                    if nm in s.get("hidden", []):
-                        try:
-                            w.pack_forget()
-                        except Exception:
-                            pass
-                # selection idx uygula
-                idx = s.get("selection", 0)
-                menu.after(120, lambda: select_index(idx))
-        except Exception:
-            pass
-
+    # state yükle
     try:
         _load_state()
     except Exception:
         pass
 
-    # 7) Menüyü kapatırken temizlik ve state kaydı
+    # kapatırken temizlik + state kaydı
     def _enhanced_close():
         try:
             _save_state()
@@ -10062,18 +9804,10 @@ def open_start_menu():
             menu.unbind_all("<MouseWheel>")
             menu.unbind_all("<Button-4>")
             menu.unbind_all("<Button-5>")
-            menu.unbind_all("1")
-            menu.unbind_all("2")
-            menu.unbind_all("3")
-            menu.unbind_all("4")
-            menu.unbind_all("5")
-            menu.unbind_all("6")
-            menu.unbind_all("7")
-            menu.unbind_all("8")
-            menu.unbind_all("9")
+            for ch in "123456789":
+                menu.unbind_all(ch)
         except Exception:
             pass
-        # çağır orijinal close
         try:
             _close()
         except Exception:
@@ -10082,17 +9816,14 @@ def open_start_menu():
             except Exception:
                 pass
 
-    # replace original _close in bindings where mantıklı
     try:
         btn_close.config(command=_enhanced_close)
     except Exception:
         pass
 
-    # 8) Tüm menü dışına tıklayınca hemen kapanma (ekstra hassas versiyon)
+    # menü dışına tıklama ile kapanış: daha güvenli sürüm
     def _global_click(e):
         try:
-            w = e.widget
-            # eğer tıklanan widget menü içinde değilse kapat
             if not menu.winfo_ismapped():
                 return
             try:
@@ -10102,29 +9833,82 @@ def open_start_menu():
                 pass
         except Exception:
             pass
-
     try:
         menu.bind_all("<Button-1>", _global_click, add="+")
     except Exception:
         pass
 
-    # 9) Periyodik scrollregion güncelle (mahallede ev alınır gibi, düzenli)
+    # periyodik scroll region güncelle
     def _periodic_update():
         try:
-            _update_scrollregion_later()
+            _update_inner_scrollregion()
         except Exception:
             pass
         try:
             menu.after(1000, _periodic_update)
         except Exception:
             pass
-
     try:
         menu.after(1200, _periodic_update)
     except Exception:
         pass
 
-    # 10) Güzel bir son dokunuş: açılınca küçük bir bip sesi at (opsiyonel, sessizde çalışmaz)
+    # animasyon: yukarı kayma (daha yumuşak)
+    def animate(y):
+        nonlocal shadow
+        try:
+            if y > y_final:
+                step = max(6, (y - y_final) // 8)
+                y -= step
+                if y < y_final:
+                    y = y_final
+                menu.geometry(f"{width}x{height}+{x}+{y}")
+                if shadow:
+                    try:
+                        shadow.geometry(f"{width+10}x{height+10}+{x-5}+{y+5}")
+                    except Exception:
+                        pass
+                menu.after(12, lambda: animate(y))
+            else:
+                menu.geometry(f"{width}x{height}+{x}+{y_final}")
+                if shadow:
+                    try:
+                        shadow.geometry(f"{width+10}x{height+10}+{x-5}+{y_final+5}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    try:
+        animate(y_start)
+    except Exception:
+        pass
+
+    # canvas içinden sürükleme (ekstra taşıma)
+    def move_menu(event):
+        nx = event.x_root - width // 2
+        ny = event.y_root - 20
+        menu.geometry(f"+{nx}+{ny}")
+        if shadow:
+            try:
+                shadow.geometry(f"+{nx-5}+{ny+5}")
+            except Exception:
+                pass
+    canvas.bind("<B1-Motion>", move_menu)
+
+    # odak ver
+    menu.focus_force()
+    entry_search.focus_set()
+
+    # root yeniden boyutlanırsa menüyü kapat (kullanıcının masaüstünü bozmamak için)
+    try:
+        root_local.bind("<Configure>", lambda e: _enhanced_close())
+    except Exception:
+        pass
+
+    # ilk seçim
+    menu.after(120, lambda: select_index(0))
+
+    # ufak bip (opsiyonel)
     try:
         import winsound
         try:
@@ -10133,11 +9917,6 @@ def open_start_menu():
             pass
     except Exception:
         pass
-
-    # Hepsi bu kadar. Orijinal kodun aynı; ben sadece etrafına yeni kabiliyetler
-    # sardım. Eğer bunlardan biri çatıya takılırsa (örn. modül yok), sessizce
-    # pas geçiyor — tam senin esnek ruhuna uygun.
-
 
 # ---------- Başlangıç İkonları (örnek) ----------
 # Güvenli çağrı: bazı ikon yolları olmayabilir; add_icon fallback yapar
